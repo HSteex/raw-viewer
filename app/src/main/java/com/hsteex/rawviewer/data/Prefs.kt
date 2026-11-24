@@ -23,6 +23,12 @@ class Prefs(context: Context) {
     private val _timings = MutableStateFlow(sp.getBoolean("timings", false))
     val showTimings: StateFlow<Boolean> = _timings.asStateFlow()
 
+    private val _histogram = MutableStateFlow(sp.getBoolean("histogram", false))
+    val showHistogram: StateFlow<Boolean> = _histogram.asStateFlow()
+
+    private val _clipping = MutableStateFlow(sp.getBoolean("clipping", false))
+    val showClipping: StateFlow<Boolean> = _clipping.asStateFlow()
+
     private val _importFormat = MutableStateFlow(
         runCatching { ImportFormat.valueOf(sp.getString("importFormat", null) ?: "JPEG") }.getOrDefault(ImportFormat.JPEG)
     )
@@ -37,6 +43,8 @@ class Prefs(context: Context) {
         get() = sp.getString("dismissedImport", null)
         set(v) { sp.edit().putString("dismissedImport", v).apply() }
 
+    fun setShowHistogram(v: Boolean) { _histogram.value = v; sp.edit().putBoolean("histogram", v).apply() }
+    fun setShowClipping(v: Boolean) { _clipping.value = v; sp.edit().putBoolean("clipping", v).apply() }
     fun setShowTimings(v: Boolean) { _timings.value = v; sp.edit().putBoolean("timings", v).apply() }
     fun setImportFormat(v: ImportFormat) { _importFormat.value = v; sp.edit().putString("importFormat", v.name).apply() }
 }

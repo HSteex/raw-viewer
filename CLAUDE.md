@@ -30,6 +30,9 @@ legge la SD con un **adattatore USB-C** e scrive in italiano: UI e messaggi in i
   l'anteprima dopo quella della corrente. La piena risoluzione JPEG viene prima copiata in `cacheDir/full`
   (max 40 file / 700 MB) e telephoto la legge da file: niente letture SD durante lo zoom.
 - Diagnostica: impostazione "Mostra tempi di caricamento" (overlay nel visualizzatore).
+- Visualizzatore: istogramma (RGB + luminanza) e maschera bruciature (rosso ≥253, blu ≤2) da `data/ImageStats.kt`,
+  calcolati sull'anteprima in memoria (sempre il JPEG); la maschera è allineata solo a zoom 1. Comandi in basso su due
+  righe (dati di scatto + JPEG/RAW, poi ✗ · stelle · ✓); Confronta e Condividi nel menu ⋮.
 - La posizione della griglia (`LazyGridState`) vive nel ViewModel; al ritorno si porta sull'ultima foto vista.
 - Griglia: le celle mostrano subito la miniatura EXIF (`quickThumb`, solo per scatti già indicizzati), poi quella
   da 640px. Le miniature in background si generano partendo dalla posizione di scorrimento della griglia.

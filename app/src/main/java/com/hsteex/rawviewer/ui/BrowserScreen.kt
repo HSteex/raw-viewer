@@ -52,6 +52,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -429,12 +430,13 @@ private fun FilterBar(filter: com.hsteex.rawviewer.data.Filter, folders: List<St
     ) {
         items(FlagFilter.entries.size) { i ->
             val f = FlagFilter.entries[i]
-            FilterChip(selected = filter.flag == f, onClick = { onChange(filter.copy(flag = f)) }, label = { Text(f.label) })
+            ColorChip(f.label, filter.flag == f, f.color()) { onChange(filter.copy(flag = f)) }
         }
         item {
             ChipMenu(
                 label = if (filter.minStars == 0) "★ Stelle" else "★ ${filter.minStars}+",
                 selected = filter.minStars > 0,
+                color = StarYellow,
                 options = listOf("Qualsiasi") + (1..5).map { "★".repeat(it) + if (it < 5) " o più" else "" },
                 onPick = { onChange(filter.copy(minStars = it)) },
             )
@@ -458,11 +460,42 @@ private fun FilterBar(filter: com.hsteex.rawviewer.data.Filter, folders: List<St
     }
 }
 
+/** Colore del filtro: lo stesso dei segni nella griglia (✓ verde, ✗ rosso, scaricate blu). */
+private fun FlagFilter.color(): Color = when (this) {
+    FlagFilter.ALL -> Accent
+    FlagFilter.UNRATED -> Color(0xFFE8E3DC)
+    FlagFilter.PICK -> PickGreen
+    FlagFilter.REJECT -> RejectRed
+    FlagFilter.NOT_REJECTED -> Color(0xFFB8E6C0)
+    FlagFilter.DOWNLOADED -> DownloadedBlue
+}
+
+/** Chip di filtro: quando è attivo prende il suo colore (sfondo tenue, testo e bordo pieni). */
 @Composable
-private fun ChipMenu(label: String, selected: Boolean, options: List<String>, onPick: (Int) -> Unit) {
+private fun ColorChip(label: String, selected: Boolean, color: Color, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal) },
+        colors = FilterChipDefaults.filterChipColors(
+            labelColor = color.copy(alpha = 0.85f),
+            selectedContainerColor = color.copy(alpha = 0.22f),
+            selectedLabelColor = color,
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = true, selected = selected,
+            borderColor = color.copy(alpha = 0.35f),
+            selectedBorderColor = color,
+            selectedBorderWidth = 1.dp,
+        ),
+    )
+}
+
+@Composable
+private fun ChipMenu(label: String, selected: Boolean, options: List<String>, color: Color = Accent, onPick: (Int) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        FilterChip(selected = selected, onClick = { open = true }, label = { Text("$label ▾") })
+        ColorChip("$label ▾", selected, color) { open = true }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             options.forEachIndexed { i, o ->
                 DropdownMenuItem(text = { Text(o) }, onClick = { open = false; onPick(i) })

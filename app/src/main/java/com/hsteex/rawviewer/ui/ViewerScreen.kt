@@ -80,6 +80,25 @@ import me.saket.telephoto.zoomable.ZoomSpec
 import me.saket.telephoto.zoomable.rememberZoomableState
 import me.saket.telephoto.zoomable.zoomable
 import kotlin.math.abs
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Exposure
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
+import com.hsteex.rawviewer.data.ImageStats
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
@@ -90,6 +109,8 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
     val swipe by vm.prefs.swipeGestures.collectAsStateWithLifecycle()
     val canUndo by vm.canUndo.collectAsStateWithLifecycle()
     val showTimings by vm.prefs.showTimings.collectAsStateWithLifecycle()
+    val histogram by vm.prefs.showHistogram.collectAsStateWithLifecycle()
+    val clipping by vm.prefs.showClipping.collectAsStateWithLifecycle()
     val keys = screen.keys
     val pager = rememberPagerState(initialPage = screen.start) { keys.size }
     var chrome by remember { mutableStateOf(true) }
@@ -156,6 +177,9 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
                     active = page == settled,
                     warm = warm,
                     showTimings = showTimings,
+                    histogram = histogram,
+                    clipping = clipping,
+                    chrome = chrome,
                     onPreview = { vm.publishMeta(s); readyKey = s.key },
                     onTap = { chrome = !chrome },
                     swipeEnabled = swipe,
@@ -196,63 +220,80 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
                     )
                 }
                 if (canUndo) IconButton(onClick = { vm.undo() }) { Icon(Icons.AutoMirrored.Filled.Undo, "Annulla voto", tint = Color.White) }
-                if (pager.currentPage < keys.lastIndex) {
-                    IconButton(onClick = { currentKey?.let { vm.openCompare(it, keys[pager.currentPage + 1]) } }) {
-                        Icon(Icons.Filled.Compare, "Confronta con la successiva", tint = Color.White)
+                ToggleIcon(Icons.Filled.BarChart, "Istogramma", histogram) { vm.prefs.setShowHistogram(!histogram) }
+                ToggleIcon(Icons.Filled.Exposure, "Luci bruciate e ombre chiuse", clipping) { vm.prefs.setShowClipping(!clipping) }
+                IconButton(onClick = { showInfo = true }) { Icon(Icons.Filled.Info, "Info", tint = Color.White) }
+                Box {
+                    var more by remember { mutableStateOf(false) }
+                    IconButton(onClick = { more = true }) { Icon(Icons.Filled.MoreVert, "Altro", tint = Color.White) }
+                    DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                        if (pager.currentPage < keys.lastIndex) {
+                            DropdownMenuItem(
+                                text = { Text("Confronta con la successiva") },
+                                leadingIcon = { Icon(Icons.Filled.Compare, null) },
+                                onClick = { more = false; currentKey?.let { vm.openCompare(it, keys[pager.currentPage + 1]) } },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("Condividi") },
+                            leadingIcon = { Icon(Icons.Filled.Share, null) },
+                            onClick = {
+                                more = false
+                                current?.let { s -> vm.shareIntent(listOf(s))?.let { runCatching { context.startActivity(it) } } }
+                            },
+                        )
                     }
                 }
-                IconButton(onClick = {
-                    current?.let { s -> vm.shareIntent(listOf(s))?.let { runCatching { context.startActivity(it) } } }
-                }) { Icon(Icons.Filled.Share, "Condividi", tint = Color.White) }
-                IconButton(onClick = { showInfo = true }) { Icon(Icons.Filled.Info, "Info", tint = Color.White) }
             }
         }
 
+        // comandi in due righe: dati di scatto (+ JPEG/RAW) e poi ✗ · stelle · ✓
         AnimatedVisibility(chrome, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
             Column(
                 Modifier
                     .fillMaxWidth()
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))))
                     .navigationBarsPadding()
-                    .padding(top = 24.dp, bottom = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .padding(start = 16.dp, end = 16.dp, top = 28.dp, bottom = 10.dp),
             ) {
-                metas[currentKey]?.let { m ->
-                    val line = listOfNotNull(m.exposure, m.fNumber?.let { "f/%.1f".format(it) }, m.iso?.let { "ISO $it" }, m.film)
-                    if (line.isNotEmpty()) {
-                        Text(line.joinToString("  ·  "), color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp)
-                        Spacer(Modifier.height(6.dp))
-                    }
-                }
-                if (current != null && vm.repo.canDevelopRaw(current)) {
-                    Row(
-                        Modifier.clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.12f)),
-                    ) {
-                        for ((label, raw) in listOf((if (current.jpeg != null) "JPEG" else "Anteprima") to false, "RAW" to true)) {
-                            val sel = showRaw == raw
-                            Text(
-                                label,
-                                color = if (sel) Color.Black else Color.White,
-                                fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(18.dp))
-                                    .background(if (sel) Accent else Color.Transparent)
-                                    .clickable { showRaw = raw }
-                                    .padding(horizontal = 18.dp, vertical = 7.dp),
-                            )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val line = metas[currentKey]?.let { m ->
+                        listOfNotNull(m.exposure, m.fNumber?.let { "f/%.1f".format(it) }, m.iso?.let { "ISO $it" }, m.film)
+                    }.orEmpty()
+                    Text(
+                        line.joinToString("  ·  "), color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                    )
+                    if (current != null && vm.repo.canDevelopRaw(current)) {
+                        Spacer(Modifier.width(8.dp))
+                        Row(Modifier.clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.12f))) {
+                            for ((label, raw) in listOf((if (current.jpeg != null) "JPEG" else "Anteprima") to false, "RAW" to true)) {
+                                val sel = showRaw == raw
+                                Text(
+                                    label,
+                                    color = if (sel) Color.Black else Color.White,
+                                    fontWeight = FontWeight.SemiBold, fontSize = 12.sp,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(if (sel) Accent else Color.Transparent)
+                                        .clickable { showRaw = raw }
+                                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                                )
+                            }
                         }
                     }
-                    Spacer(Modifier.height(10.dp))
                 }
-                StarsRow(rating.stars, onStar = { n -> currentKey?.let { stars(it, n) } }, size = 40.dp)
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    FlagButton("Scarta", Icons.Filled.Close, rating.flag == Flag.REJECT, RejectRed, {
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    FlagCircle(Icons.Filled.Close, "Scarta", rating.flag == Flag.REJECT, RejectRed) {
                         currentKey?.let { flag(it, Flag.REJECT) }
-                    })
-                    FlagButton("Scarica", Icons.Filled.Check, rating.flag == Flag.PICK, PickGreen, {
+                    }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        StarsRow(rating.stars, onStar = { n -> currentKey?.let { stars(it, n) } }, size = 38.dp)
+                    }
+                    FlagCircle(Icons.Filled.Check, "Scarica", rating.flag == Flag.PICK, PickGreen) {
                         currentKey?.let { flag(it, Flag.PICK) }
-                    })
+                    }
                 }
             }
         }
@@ -285,6 +326,9 @@ fun ViewerPage(
     swipeEnabled: Boolean,
     onSwipe: (up: Boolean) -> Unit,
     showTimings: Boolean = false,
+    histogram: Boolean = false,
+    clipping: Boolean = false,
+    chrome: Boolean = true,
     onPreview: () -> Unit = {},
 ) {
     var source by remember(shot.key, raw) { mutableStateOf<SubSamplingImageSource?>(null) }
@@ -297,6 +341,21 @@ fun ViewerPage(
     var tSource by remember(shot.key, raw) { mutableStateOf<Long?>(null) }
     var tFull by remember(shot.key, raw) { mutableStateOf<Long?>(null) }
     val hadPreview = remember(shot.key) { preview != null }
+    // istogramma e bruciature dall'anteprima già in memoria (sempre il JPEG, anche col toggle RAW)
+    val statsSrc = preview ?: gridThumb
+    val stats by produceState<ImageStats?>(null, statsSrc, histogram && active) {
+        if (statsSrc != null && histogram && active) {
+            value = withContext(Dispatchers.Default) { runCatching { ImageStats.analyze(statsSrc) }.getOrNull() }
+        }
+    }
+    val mask by produceState<ImageBitmap?>(null, statsSrc, clipping && active && !raw) {
+        value = null
+        if (statsSrc != null && clipping && active && !raw) {
+            value = withContext(Dispatchers.Default) {
+                runCatching { ImageStats.clippingMask(statsSrc).asImageBitmap() }.getOrNull()
+            }
+        }
+    }
 
     // pagina vicina: solo l'anteprima (~1600px), e solo dopo che quella a schermo è pronta
     LaunchedEffect(shot.key, active, warm) {
@@ -324,6 +383,7 @@ fun ViewerPage(
             if (thumb != null) {
                 val img = remember(thumb) { thumb.asImageBitmap() }
                 Image(img, shot.baseName, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                mask?.let { ClippingOverlay(it) }
             }
             if (failed) {
                 Text(
@@ -378,6 +438,8 @@ fun ViewerPage(
                     .then(swipeMod)
                     .zoomable(zoom, onClick = { onTap() }),
             )
+            // la maschera è calcolata sull'anteprima: allineata solo a zoom 1
+            if (notZoomed()) mask?.let { ClippingOverlay(it) }
             if (abs(drag) > threshold / 3) {
                 val up = drag < 0
                 val strong = abs(drag) > threshold
@@ -395,6 +457,17 @@ fun ViewerPage(
                 )
             }
         }
+        if (histogram && active) {
+            stats?.let { st ->
+                HistogramPanel(
+                    st, raw,
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .statusBarsPadding()
+                        .padding(top = if (chrome) 60.dp else 44.dp, end = 10.dp),
+                )
+            }
+        }
         if (showTimings && t0 > 0) {
             val parts = listOfNotNull(
                 tPreview?.let { (if (hadPreview) "anteprima già in memoria" else "anteprima $it ms") },
@@ -405,12 +478,103 @@ fun ViewerPage(
                 parts.joinToString("  ·  "),
                 color = Color.White, fontSize = 11.sp,
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = 64.dp)
+                    .align(Alignment.BottomStart)
+                    .navigationBarsPadding()
+                    .padding(start = 8.dp, bottom = 150.dp)
                     .background(Color.Black.copy(alpha = 0.6f))
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             )
         }
     }
+}
+
+@Composable
+private fun ToggleIcon(icon: ImageVector, description: String, on: Boolean, onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(
+            icon, description,
+            tint = if (on) Accent else Color.White,
+            modifier = if (on) Modifier.clip(CircleShape).background(Accent.copy(alpha = 0.18f)).padding(4.dp) else Modifier,
+        )
+    }
+}
+
+/** ✓ / ✗ rotondi: piccoli, ma pieni del loro colore quando sono attivi. */
+@Composable
+private fun FlagCircle(icon: ImageVector, description: String, active: Boolean, color: Color, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(52.dp)
+            .clip(CircleShape)
+            .background(if (active) color else Color.White.copy(alpha = 0.12f))
+            .border(1.5.dp, color.copy(alpha = if (active) 1f else 0.6f), CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, description, tint = if (active) Color.Black else color, modifier = Modifier.size(26.dp))
+    }
+}
+
+@Composable
+private fun ClippingOverlay(mask: ImageBitmap) {
+    Image(
+        mask, null, Modifier.fillMaxSize(),
+        contentScale = ContentScale.Fit, filterQuality = FilterQuality.None,
+    )
+}
+
+/** Istogramma RGB + luminanza, con le percentuali di luci bruciate / ombre chiuse. */
+@Composable
+private fun HistogramPanel(st: ImageStats, raw: Boolean, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .width(176.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color.Black.copy(alpha = 0.6f))
+            .padding(8.dp),
+    ) {
+        Canvas(Modifier.fillMaxWidth().height(72.dp)) {
+            // scala con radice: i picchi enormi (cielo, neri) non schiacciano il resto
+            val peak = maxOf(
+                st.red.drop(1).dropLast(1).max(), st.green.drop(1).dropLast(1).max(),
+                st.blue.drop(1).dropLast(1).max(), st.luma.drop(1).dropLast(1).max(), 1,
+            ).let { kotlin.math.sqrt(it.toDouble()) }
+            fun channel(bins: IntArray, color: Color) {
+                val path = Path()
+                val w = size.width
+                val h = size.height
+                path.moveTo(0f, h)
+                for (i in 0..255) {
+                    val v = (kotlin.math.sqrt(bins[i].toDouble()) / peak).coerceAtMost(1.0).toFloat()
+                    path.lineTo(i / 255f * w, h - v * h)
+                }
+                path.lineTo(w, h)
+                path.close()
+                drawPath(path, color)
+            }
+            channel(st.luma, Color.White.copy(alpha = 0.25f))
+            channel(st.red, Color(0xFFFF4040).copy(alpha = 0.45f))
+            channel(st.green, Color(0xFF40E040).copy(alpha = 0.40f))
+            channel(st.blue, Color(0xFF4080FF).copy(alpha = 0.45f))
+        }
+        Spacer(Modifier.height(4.dp))
+        Row {
+            Text(
+                "ombre " + pct(st.clippedLow), fontSize = 10.sp,
+                color = if (st.clippedLow > 0.005f) Color(ImageStats.MASK_LOW) else Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                "luci " + pct(st.clippedHigh), fontSize = 10.sp,
+                color = if (st.clippedHigh > 0.005f) Color(ImageStats.MASK_HIGH) else Color.White.copy(alpha = 0.7f),
+            )
+        }
+        if (raw) Text("calcolato sul JPEG", fontSize = 9.sp, color = Color.White.copy(alpha = 0.5f))
+    }
+}
+
+private fun pct(f: Float): String = when {
+    f <= 0f -> "0%"
+    f < 0.001f -> "<0,1%"
+    else -> "%.1f%%".format(f * 100)
 }
