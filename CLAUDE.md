@@ -8,7 +8,7 @@ legge la SD con un **adattatore USB-C** e scrive in italiano: UI e messaggi in i
 
 - In genere l'ambiente di sviluppo **non ha l'SDK Android** e non raggiunge Google Maven: non provare a compilare in locale.
 - Ogni push su `main` viene compilato da GitHub Actions (`.github/workflows/build.yml`), che aggiorna la release `latest`
-  con `raw-viewer-<run>.apk`. Per seguire la build: `gh run list` / `gh run view <id> --log-failed`
+  con `raw-viewer.apk` (link fisso: `releases/latest/download/raw-viewer.apk`). Per seguire la build: `gh run list` / `gh run view <id> --log-failed`
   (usa le API REST, GraphQL non è disponibile).
 - Versioni fissate e testate insieme: AGP 8.8.0, Kotlin 2.1.0, Compose BOM 2025.01.00, telephoto 0.15.1, compileSdk 35, minSdk 29.
 - Firma: secrets `KEYSTORE_B64` + `KEYSTORE_PASSWORD`. Senza secrets usa la chiave di debug del runner, che cambia a ogni build.

@@ -45,7 +45,7 @@ jobs:
       - name: Rinomina APK
         run: |
           mkdir -p out
-          cp app/build/outputs/apk/release/*.apk "out/raw-viewer-${{ github.run_number }}.apk"
+          cp app/build/outputs/apk/release/*.apk out/raw-viewer.apk
           ls -la out
 
       - uses: actions/upload-artifact@v4
@@ -62,6 +62,6 @@ jobs:
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest out/*.apk \
             --title "RAW Viewer build ${{ github.run_number }}" \
-            --notes "Build automatica da ${{ github.sha }}" \
+            --notes "Build ${{ github.run_number }} da ${{ github.sha }}. Link fisso: https://github.com/${{ github.repository }}/releases/latest/download/raw-viewer.apk" \
             --target "${{ github.sha }}" \
-            --prerelease
+            --latest

@@ -4,8 +4,8 @@ App Android per **sfogliare, valutare e scaricare** le foto della SD della fotoc
 
 ## Installazione
 
-Ogni push su `main` viene compilato da GitHub Actions. L'APK aggiornato si scarica dalla release
-[**latest**](../../releases/tag/latest).
+Ogni push su `main` viene compilato da GitHub Actions. L'APK aggiornato ha un link fisso:
+https://github.com/HSteex/raw-viewer/releases/latest/download/raw-viewer.apk
 
 ## Perché è veloce
 
