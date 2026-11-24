@@ -310,6 +310,27 @@ class ImageRepo(private val context: Context, private val db: Db) {
         }
     }
 
+    private val rawDispatcher = Dispatchers.IO.limitedParallelism(1)
+
+    fun canDevelopRaw(s: Shot): Boolean = RawDecoder.available && s.raw != null
+
+    /** RAW sviluppato da LibRaw (neutro, senza simulazione pellicola), messo in cache su disco. */
+    suspend fun rawSource(s: Shot): SubSamplingImageSource? = withContext(rawDispatcher) {
+        val raw = s.raw ?: return@withContext null
+        val f = File(diskDir, hash(raw.cacheId) + ".dev.jpg")
+        if (!f.exists()) {
+            val bmp = RawDecoder.decode(context, raw.uri) ?: return@withContext null
+            val tmp = File(diskDir, f.name + ".tmp")
+            FileOutputStream(tmp).use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+            bmp.recycle()
+            tmp.renameTo(f)
+        }
+        SubSamplingImageSource.file(f.toOkioPath())
+    }
+
+    fun hasDevelopedRaw(s: Shot): Boolean =
+        s.raw?.let { File(diskDir, hash(it.cacheId) + ".dev.jpg").exists() } ?: false
+
     /** Estrae su disco il JPEG incorporato nel RAF (per i RAW senza JPEG). */
     private fun embeddedJpegFile(raw: MediaFile): File? {
         val i = info(raw) ?: return null

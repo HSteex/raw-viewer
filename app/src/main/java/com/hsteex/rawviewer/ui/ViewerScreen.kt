@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -88,6 +89,7 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
     val pager = rememberPagerState(initialPage = screen.start) { keys.size }
     var chrome by remember { mutableStateOf(true) }
     var showInfo by remember { mutableStateOf(false) }
+    var showRaw by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
@@ -135,6 +137,7 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
             if (s != null) {
                 ViewerPage(
                     repo = vm.repo, shot = s,
+                    raw = showRaw && vm.repo.canDevelopRaw(s),
                     onTap = { chrome = !chrome },
                     swipeEnabled = swipe,
                     onSwipe = { up -> flag(s.key, if (up) Flag.PICK else Flag.REJECT) },
@@ -195,6 +198,26 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
                         Spacer(Modifier.height(6.dp))
                     }
                 }
+                if (current != null && vm.repo.canDevelopRaw(current)) {
+                    Row(
+                        Modifier.clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.12f)),
+                    ) {
+                        for ((label, raw) in listOf((if (current.jpeg != null) "JPEG" else "Anteprima") to false, "RAW" to true)) {
+                            val sel = showRaw == raw
+                            Text(
+                                label,
+                                color = if (sel) Color.Black else Color.White,
+                                fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(18.dp))
+                                    .background(if (sel) Accent else Color.Transparent)
+                                    .clickable { showRaw = raw }
+                                    .padding(horizontal = 18.dp, vertical = 7.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
                 StarsRow(rating.stars, onStar = { n -> currentKey?.let { stars(it, n) } }, size = 40.dp)
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -220,14 +243,15 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
 fun ViewerPage(
     repo: ImageRepo,
     shot: Shot,
+    raw: Boolean = false,
     onTap: () -> Unit,
     swipeEnabled: Boolean,
     onSwipe: (up: Boolean) -> Unit,
 ) {
-    var source by remember(shot.key) { mutableStateOf<SubSamplingImageSource?>(null) }
-    var failed by remember(shot.key) { mutableStateOf(false) }
-    LaunchedEffect(shot.key) {
-        val s = runCatching { repo.viewerSource(shot) }.getOrNull()
+    var source by remember(shot.key, raw) { mutableStateOf<SubSamplingImageSource?>(null) }
+    var failed by remember(shot.key, raw) { mutableStateOf(false) }
+    LaunchedEffect(shot.key, raw) {
+        val s = runCatching { if (raw) repo.rawSource(shot) else repo.viewerSource(shot) }.getOrNull()
         if (s == null) failed = true else source = s
     }
     val threshold = with(LocalDensity.current) { 90.dp.toPx() }
@@ -241,7 +265,19 @@ fun ViewerPage(
                 Image(img, shot.baseName, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             }
             if (failed) {
-                Text("Impossibile aprire questo file", color = Color.White, modifier = Modifier.align(Alignment.Center))
+                Text(
+                    if (raw) "Impossibile sviluppare questo RAW" else "Impossibile aprire questo file",
+                    color = Color.White, modifier = Modifier.align(Alignment.Center),
+                )
+            } else if (raw) {
+                Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Sviluppo RAW…", color = Color.White,
+                        modifier = Modifier.background(Color.Black.copy(alpha = 0.5f)).padding(horizontal = 8.dp, vertical = 2.dp),
+                    )
+                }
             } else if (thumb == null) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }

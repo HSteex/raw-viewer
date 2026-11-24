@@ -27,7 +27,11 @@ Ogni push su `main` viene compilato da GitHub Actions. L'APK aggiornato si scari
 - Condivisione
 - Copia sul telefono di JPEG, RAW o entrambi, in `Immagini/RAW Viewer/<data>`, in background e saltando i duplicati
 
+- Toggle **JPEG / RAW** nel visualizzatore: il RAW viene sviluppato davvero (neutro, senza simulazione pellicola) con [LibRaw](https://www.libraw.org/) a metà risoluzione e messo in cache
+
 L'app **non cancella mai nulla** dalla SD.
+
+LibRaw è distribuita con licenza LGPL 2.1 / CDDL 1.0.
 
 ## Firma
 

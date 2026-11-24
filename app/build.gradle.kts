@@ -19,6 +19,16 @@ android {
         targetSdk = 35
         versionCode = runNumber
         versionName = "0.1.$runNumber"
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     signingConfigs {
