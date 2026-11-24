@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Diaframma stilizzato con sei lamelle -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFB547"
+        android:pathData="M54,30a24,24 0,1 1,0 48a24,24 0,1 1,0 -48z M54,36a18,18 0,1 0,0 36a18,18 0,1 0,0 -36z" />
+    <path android:fillColor="#FFFFB547" android:pathData="M54,36 L66,43 L58,50 Z" />
+    <path android:fillColor="#FFFFB547" android:pathData="M69.6,45 L69.6,59 L60,56 Z" />
+    <path android:fillColor="#FFFFB547" android:pathData="M69.6,63 L57.6,70 L56,60 Z" />
+    <path android:fillColor="#FFFFB547" android:pathData="M54,72 L42,65 L50,58 Z" />
+    <path android:fillColor="#FFFFB547" android:pathData="M38.4,63 L38.4,49 L48,52 Z" />
+    <path android:fillColor="#FFFFB547" android:pathData="M38.4,45 L50.4,38 L52,48 Z" />
+</vector>
