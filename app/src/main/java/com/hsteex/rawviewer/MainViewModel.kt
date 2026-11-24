@@ -105,6 +105,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             ratings.value = db.loadRatings()
             roots.value = db.listRoots()
         }
+        // col visualizzatore aperto la banda della SD è tutta per la foto a schermo
+        viewModelScope.launch {
+            screen.collect { repo.setInteractive(it is Screen.Viewer || it is Screen.Compare) }
+        }
     }
 
     // ------------------------------------------------------------ navigazione
@@ -239,6 +243,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             filtered.value.map { s -> launch { sem.withPermit { runCatching { repo.ensureGridOnDisk(s) } } } }
                 .forEach { it.join() }
         }
+    }
+
+    /** Metadati di uno scatto appena letto dal visualizzatore (l'indicizzazione è in pausa). */
+    fun publishMeta(s: Shot) {
+        val m = repo.metaFor(s) ?: return
+        if (metas.value[s.key] != m) metas.value = metas.value + (s.key to m)
     }
 
     private fun flushMetas(buffer: ConcurrentHashMap<String, PhotoMeta>) {

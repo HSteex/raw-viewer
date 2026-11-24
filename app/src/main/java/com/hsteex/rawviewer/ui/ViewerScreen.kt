@@ -45,6 +45,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -68,7 +69,9 @@ import com.hsteex.rawviewer.data.ImageRepo
 import com.hsteex.rawviewer.data.Rating
 import com.hsteex.rawviewer.data.Shot
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import me.saket.telephoto.subsamplingimage.SubSamplingImage
 import me.saket.telephoto.subsamplingimage.SubSamplingImageSource
 import me.saket.telephoto.subsamplingimage.rememberSubSamplingImageState
@@ -98,10 +101,18 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
     val current = currentKey?.let { shotMap[it] }
     val rating = currentKey?.let { ratings[it] } ?: Rating()
 
-    LaunchedEffect(pager.currentPage, shotMap) {
-        val p = pager.currentPage
-        vm.repo.prefetch(listOf(p + 1, p - 1, p + 2).mapNotNull { keys.getOrNull(it)?.let(shotMap::get) })
+    // Priorità: prima la foto a schermo (anteprima e poi piena risoluzione), solo dopo le vicine.
+    val settled = pager.settledPage
+    var readyKey by remember { mutableStateOf<String?>(null) }
+    var warmKey by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(settled, shotMap) {
+        val k = keys.getOrNull(settled) ?: return@LaunchedEffect
+        withTimeoutOrNull(NEIGHBOR_WAIT_MS) { snapshotFlow { readyKey }.first { it == k } }
+        warmKey = k
+        // le pagine ±1 caricano da sole la loro anteprima; qui si porta avanti la +2
+        vm.repo.prefetch(listOfNotNull(keys.getOrNull(settled + 2)?.let(shotMap::get)))
     }
+    val warm = warmKey != null && warmKey == keys.getOrNull(settled)
 
     fun advance() {
         if (autoAdvance && pager.currentPage < keys.lastIndex) {
@@ -138,6 +149,10 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
                 ViewerPage(
                     repo = vm.repo, shot = s,
                     raw = showRaw && vm.repo.canDevelopRaw(s),
+                    active = page == settled,
+                    warm = warm,
+                    onPreview = { vm.publishMeta(s) },
+                    onDisplayed = { readyKey = s.key },
                     onTap = { chrome = !chrome },
                     swipeEnabled = swipe,
                     onSwipe = { up -> flag(s.key, if (up) Flag.PICK else Flag.REJECT) },
@@ -239,27 +254,54 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
     }
 }
 
+private const val NEIGHBOR_WAIT_MS = 1500L
+
+/**
+ * Una foto del visualizzatore.
+ * [active]: è la pagina a schermo, quindi carica la piena risoluzione (le altre restano all'anteprima).
+ * [warm]: la pagina a schermo è pronta, le vicine possono caricare la loro anteprima.
+ */
 @Composable
 fun ViewerPage(
     repo: ImageRepo,
     shot: Shot,
     raw: Boolean = false,
+    active: Boolean = true,
+    warm: Boolean = true,
     onTap: () -> Unit,
     swipeEnabled: Boolean,
     onSwipe: (up: Boolean) -> Unit,
+    onPreview: () -> Unit = {},
+    onDisplayed: () -> Unit = {},
 ) {
     var source by remember(shot.key, raw) { mutableStateOf<SubSamplingImageSource?>(null) }
     var failed by remember(shot.key, raw) { mutableStateOf(false) }
-    LaunchedEffect(shot.key, raw) {
+    var preview by remember(shot.key) { mutableStateOf(repo.peekPreview(shot)) }
+    val gridThumb = remember(shot.key) { repo.peekGrid(shot) }
+
+    // pagina vicina: solo l'anteprima (~1600px), e solo dopo che quella a schermo è pronta
+    LaunchedEffect(shot.key, active, warm) {
+        if (!active && warm && preview == null) preview = runCatching { repo.preview(shot) }.getOrNull()
+    }
+    // pagina a schermo: anteprima subito, poi piena risoluzione. Se si scorre via prima
+    // che finisca, l'effetto viene annullato e la banda passa alla nuova pagina.
+    LaunchedEffect(shot.key, raw, active) {
+        if (!active || source != null || failed) return@LaunchedEffect
+        if (preview == null) preview = runCatching { repo.preview(shot) }.getOrNull()
+        onPreview()
+        if (raw) onDisplayed() // lo sviluppo è lungo: non blocca le vicine
         val s = runCatching { if (raw) repo.rawSource(shot) else repo.viewerSource(shot) }.getOrNull()
-        if (s == null) failed = true else source = s
+        if (s == null) {
+            failed = true
+            onDisplayed()
+        } else source = s
     }
     val threshold = with(LocalDensity.current) { 90.dp.toPx() }
 
     Box(Modifier.fillMaxSize()) {
         val src = source
         if (src == null) {
-            val thumb = repo.peekPreview(shot) ?: repo.peekGrid(shot)
+            val thumb = preview ?: gridThumb
             if (thumb != null) {
                 val img = remember(thumb) { thumb.asImageBitmap() }
                 Image(img, shot.baseName, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
@@ -284,6 +326,10 @@ fun ViewerPage(
         } else {
             val zoom = rememberZoomableState(zoomSpec = ZoomSpec(maxZoomFactor = 3f))
             val state = rememberSubSamplingImageState(imageSource = src, zoomableState = zoom)
+            LaunchedEffect(state) {
+                snapshotFlow { state.isImageDisplayedInFullQuality }.first { it }
+                onDisplayed()
+            }
             var drag by remember { mutableFloatStateOf(0f) }
             val notZoomed = { (zoom.zoomFraction ?: 0f) < 0.02f }
             val swipeMod = if (swipeEnabled) {

@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.util.Log
 import android.util.LruCache
 import androidx.compose.ui.graphics.asImageBitmap
@@ -13,6 +14,11 @@ import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.saket.telephoto.subsamplingimage.SubSamplingImageSource
@@ -33,6 +39,8 @@ class ImageRepo(private val context: Context, private val db: Db) {
     private val resolver = context.contentResolver
     private val ioThumbs = Dispatchers.IO.limitedParallelism(4)
     private val ioBg = Dispatchers.IO.limitedParallelism(2)
+    /** Coda riservata al visualizzatore: non aspetta mai griglia o background. */
+    private val ioViewer = Dispatchers.IO.limitedParallelism(3)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val maxMem = Runtime.getRuntime().maxMemory()
@@ -47,6 +55,42 @@ class ImageRepo(private val context: Context, private val db: Db) {
 
     init {
         scope.launch { trimDiskCache() }
+    }
+
+    // ------------------------------------------------------------------ priorità I/O
+    //
+    // La SD (via adattatore USB) ha poca banda e soffre le letture parallele.
+    // Il lavoro in background (metadati, miniature su disco) cede il passo a ciò
+    // che l'utente sta guardando: si ferma del tutto col visualizzatore aperto e
+    // aspetta una breve pausa dopo ogni lettura "in primo piano" (miniature visibili).
+
+    private val interactive = MutableStateFlow(false)
+    private val fgCount = MutableStateFlow(0)
+    @Volatile private var lastFg = 0L
+
+    /** true mentre è aperto il visualizzatore (o il confronto): background in pausa. */
+    fun setInteractive(on: Boolean) {
+        if (!on) lastFg = SystemClock.uptimeMillis()
+        interactive.value = on
+    }
+
+    private inline fun <T> foreground(block: () -> T): T {
+        fgCount.update { it + 1 }
+        try {
+            return block()
+        } finally {
+            lastFg = SystemClock.uptimeMillis()
+            fgCount.update { it - 1 }
+        }
+    }
+
+    private suspend fun awaitBackgroundTurn() {
+        while (true) {
+            combine(interactive, fgCount) { i, n -> !i && n == 0 }.first { it }
+            val wait = lastFg + BG_COOLDOWN_MS - SystemClock.uptimeMillis()
+            if (wait <= 0 && !interactive.value && fgCount.value == 0) return
+            delay(wait.coerceAtLeast(50))
+        }
     }
 
     // ------------------------------------------------------------------ info
@@ -75,14 +119,19 @@ class ImageRepo(private val context: Context, private val db: Db) {
     fun hasMeta(s: Shot): Boolean = metaOf(s) != null
 
     /** Legge (se serve) i metadati di uno scatto. Usato dall'indicizzazione in background. */
-    suspend fun indexShot(s: Shot): PhotoMeta? = withContext(ioBg) {
+    suspend fun indexShot(s: Shot): PhotoMeta? {
+        awaitBackgroundTurn()
+        return withContext(ioBg) { indexShotNow(s) }
+    }
+
+    private fun indexShotNow(s: Shot): PhotoMeta? {
         val pending = ArrayList<Pair<MediaFile, FileInfo>>()
         val primary = s.jpeg?.takeIf { it.kind == Kind.JPEG } ?: s.raw ?: s.jpeg
         if (primary != null && infoCache[primary.docId] == null) {
             parseFile(primary)?.let { infoCache[primary.docId] = it; pending += primary to it }
         }
         if (pending.isNotEmpty()) runCatching { db.putInfos(pending) }
-        metaOf(s)
+        return metaOf(s)
     }
 
     private fun info(f: MediaFile): FileInfo? {
@@ -140,27 +189,28 @@ class ImageRepo(private val context: Context, private val db: Db) {
 
     private data class Src(val uri: Uri, val off: Long, val len: Int, val orientation: Int, val whole: Boolean = false)
 
-    /** Sorgenti candidate in ordine di convenienza (byte da leggere ↔ qualità). */
-    private fun sources(s: Shot, allowWhole: Boolean): List<Src> {
-        val list = ArrayList<Src>(4)
+    /**
+     * Sorgenti candidate in ordine di convenienza (byte da leggere ↔ qualità).
+     * Sequenza pigra: il RAW viene aperto e analizzato solo se il JPEG non basta.
+     */
+    private fun sources(s: Shot, allowWhole: Boolean): Sequence<Src> = sequence {
         val j = s.jpeg
         val jInfo = j?.takeIf { it.kind == Kind.JPEG }?.let { info(it) }
         if (j != null && jInfo != null && jInfo.prevLen > 0) {
-            list += Src(j.uri, jInfo.prevOff, jInfo.prevLen, jInfo.meta.orientation)
+            yield(Src(j.uri, jInfo.prevOff, jInfo.prevLen, jInfo.meta.orientation))
         }
         val r = s.raw
         val rInfo = r?.let { info(it) }
         if (r != null && rInfo != null) {
             val o = rInfo.meta.orientation
-            if (rInfo.prevLen > 0) list += Src(r.uri, rInfo.prevOff, rInfo.prevLen, o)
-            if (rInfo.jpgLen > 0) list += Src(r.uri, rInfo.jpgOff, rInfo.jpgLen, o)
+            if (rInfo.prevLen > 0) yield(Src(r.uri, rInfo.prevOff, rInfo.prevLen, o))
+            if (rInfo.jpgLen > 0) yield(Src(r.uri, rInfo.jpgOff, rInfo.jpgLen, o))
         }
         if (allowWhole && j != null) {
-            list += Src(j.uri, 0, 0, jInfo?.meta?.orientation ?: heifOrientation(j), whole = true)
+            yield(Src(j.uri, 0, 0, jInfo?.meta?.orientation ?: heifOrientation(j), whole = true))
         }
-        if (jInfo != null && jInfo.thumbLen > 0) list += Src(j.uri, jInfo.thumbOff, jInfo.thumbLen, jInfo.meta.orientation)
-        if (rInfo != null && rInfo.thumbLen > 0) list += Src(r.uri, rInfo.thumbOff, rInfo.thumbLen, rInfo.meta.orientation)
-        return list
+        if (j != null && jInfo != null && jInfo.thumbLen > 0) yield(Src(j.uri, jInfo.thumbOff, jInfo.thumbLen, jInfo.meta.orientation))
+        if (r != null && rInfo != null && rInfo.thumbLen > 0) yield(Src(r.uri, rInfo.thumbOff, rInfo.thumbLen, rInfo.meta.orientation))
     }
 
     private fun heifOrientation(f: MediaFile): Int = runCatching {
@@ -248,8 +298,12 @@ class ImageRepo(private val context: Context, private val db: Db) {
     suspend fun grid(s: Shot): Bitmap? = withContext(ioThumbs) { loadGrid(s, keepInMemory = true) }
 
     /** Generazione in background delle miniature (solo su disco). */
-    suspend fun ensureGridOnDisk(s: Shot) = withContext(ioBg) {
-        if (gridCache.get(s.key) == null && !gridFile(s).exists()) loadGrid(s, keepInMemory = false)
+    suspend fun ensureGridOnDisk(s: Shot) {
+        if (gridCache.get(s.key) != null || gridFile(s).exists()) return
+        awaitBackgroundTurn()
+        withContext(ioBg) {
+            if (gridCache.get(s.key) == null && !gridFile(s).exists()) loadGrid(s, keepInMemory = false)
+        }
     }
 
     private fun loadGrid(s: Shot, keepInMemory: Boolean): Bitmap? {
@@ -261,7 +315,8 @@ class ImageRepo(private val context: Context, private val db: Db) {
                 return it
             }
         }
-        val bmp = decodeShot(s, GRID_PX) ?: return null
+        // keepInMemory = miniatura visibile a schermo: ha la precedenza sul background
+        val bmp = (if (keepInMemory) foreground { decodeShot(s, GRID_PX) } else decodeShot(s, GRID_PX)) ?: return null
         try {
             val tmp = File(diskDir, f.name + ".tmp" + Thread.currentThread().id)
             FileOutputStream(tmp).use { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }
@@ -278,32 +333,31 @@ class ImageRepo(private val context: Context, private val db: Db) {
     fun peekPreview(s: Shot): Bitmap? = previewCache.get(s.key)
 
     /** Anteprima grande (MPF ~1600px o JPEG incorporato) per mostrare subito la foto. */
-    suspend fun preview(s: Shot): Bitmap? = withContext(ioThumbs) {
-        previewCache.get(s.key) ?: decodeShot(s, PREVIEW_PX, allowWhole = false)
-            ?.also { previewCache.put(s.key, it) }
-            ?: loadGrid(s, true)
-    }
-
-    fun prefetch(shots: List<Shot>) {
-        for (s in shots) {
-            if (previewCache.get(s.key) != null) continue
-            scope.launch(ioBg) {
-                if (previewCache.get(s.key) == null) {
-                    decodeShot(s, PREVIEW_PX, allowWhole = false)?.let { previewCache.put(s.key, it) }
-                }
+    suspend fun preview(s: Shot): Bitmap? {
+        previewCache.get(s.key)?.let { return it }
+        return withContext(ioViewer) {
+            foreground {
+                previewCache.get(s.key) ?: decodeShot(s, PREVIEW_PX, allowWhole = false)
+                    ?.also { previewCache.put(s.key, it) }
+                    ?: loadGrid(s, true)
             }
         }
     }
 
+    /** Anteprime delle foto vicine, una alla volta (va chiamata dopo che la foto corrente è a schermo). */
+    suspend fun prefetch(shots: List<Shot>) {
+        for (s in shots) preview(s)
+    }
+
     /** Sorgente a tile per lo zoom a piena risoluzione. */
-    suspend fun viewerSource(s: Shot): SubSamplingImageSource? = withContext(Dispatchers.IO) {
+    suspend fun viewerSource(s: Shot): SubSamplingImageSource? = withContext(ioViewer) {
         val prev = preview(s)
         val prevImg = prev?.asImageBitmap()
         val j = s.jpeg
         when {
             j != null -> SubSamplingImageSource.contentUri(j.uri, prevImg)
             s.raw != null -> {
-                val file = embeddedJpegFile(s.raw) ?: prev?.let { bitmapFile(s, it) }
+                val file = foreground { embeddedJpegFile(s.raw) } ?: prev?.let { bitmapFile(s, it) }
                 file?.let { SubSamplingImageSource.file(it.toOkioPath(), prevImg) }
             }
             else -> null
@@ -388,5 +442,7 @@ class ImageRepo(private val context: Context, private val db: Db) {
         const val GRID_PX = 640
         const val PREVIEW_PX = 2048
         private const val MAX_DISK = 800L shl 20
+        /** Pausa minima del background dopo l'ultima lettura in primo piano. */
+        private const val BG_COOLDOWN_MS = 700L
     }
 }

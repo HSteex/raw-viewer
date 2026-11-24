@@ -23,6 +23,10 @@ legge la SD con un **adattatore USB-C** e scrive in italiano: UI e messaggi in i
 - `data/ImageRepo.kt`: miniature griglia (640px, cache in memoria + su disco in `cacheDir/thumbs`), anteprime
   per il visualizzatore, sorgenti `SubSamplingImageSource` (telephoto) per lo zoom, RAW sviluppato in cache.
   **Principio chiave: non decodificare mai il file intero se c'è un'anteprima incorporata.**
+  **Priorità I/O**: la banda della SD è poca. Il background (indicizzazione metadati, miniature su disco) passa da
+  `awaitBackgroundTurn()`: è in pausa col visualizzatore/confronto aperto e dopo ogni lettura in primo piano
+  (`foreground {}`: miniature visibili, anteprime del visualizzatore). Il visualizzatore ha una coda sua (`ioViewer`).
+  Nel pager solo la pagina a schermo carica la piena risoluzione; le vicine caricano l'anteprima solo dopo.
 - `data/RawDecoder.kt` + `cpp/rawdecoder.cpp`: LibRaw via JNI (half-size, WB di macchina, sRGB 8 bit).
 - `data/Db.kt`: SQLite (voti, cache metadati, cartelle recenti). `data/Prefs.kt`: impostazioni.
 - `data/ImportWorker.kt`: copia con WorkManager in `Pictures/RAW Viewer/<data>/` tramite MediaStore, salta i duplicati.
