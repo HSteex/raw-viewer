@@ -42,6 +42,7 @@ import java.util.concurrent.atomic.AtomicInteger
 sealed interface Screen {
     data object Home : Screen
     data object Browser : Screen
+    data object Settings : Screen
     data class Viewer(val keys: List<String>, val start: Int) : Screen
     data class Compare(val a: String, val b: String) : Screen
 }

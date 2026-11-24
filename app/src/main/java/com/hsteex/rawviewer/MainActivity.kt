@@ -13,6 +13,7 @@ import com.hsteex.rawviewer.ui.BrowserScreen
 import com.hsteex.rawviewer.ui.CompareScreen
 import com.hsteex.rawviewer.ui.HomeScreen
 import com.hsteex.rawviewer.ui.RawTheme
+import com.hsteex.rawviewer.ui.SettingsScreen
 import com.hsteex.rawviewer.ui.ViewerScreen
 
 class MainActivity : ComponentActivity() {
@@ -34,6 +35,7 @@ private fun AppRoot(vm: MainViewModel) {
     when (val s = screen) {
         Screen.Home -> HomeScreen(vm)
         Screen.Browser -> BrowserScreen(vm)
+        Screen.Settings -> SettingsScreen(vm)
         is Screen.Viewer -> ViewerScreen(vm, s)
         is Screen.Compare -> CompareScreen(vm, s)
     }

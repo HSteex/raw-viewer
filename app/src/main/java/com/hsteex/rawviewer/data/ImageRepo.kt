@@ -375,6 +375,8 @@ class ImageRepo(private val context: Context, private val db: Db) {
         }
     }
 
+    fun diskCacheSize(): Long = diskDir.listFiles()?.sumOf { it.length() } ?: 0L
+
     fun clearCaches() {
         gridCache.evictAll()
         previewCache.evictAll()
