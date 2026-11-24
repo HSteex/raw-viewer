@@ -26,7 +26,11 @@ legge la SD con un **adattatore USB-C** e scrive in italiano: UI e messaggi in i
   **Priorità I/O**: la banda della SD è poca. Il background (indicizzazione metadati, miniature su disco) passa da
   `awaitBackgroundTurn()`: è in pausa col visualizzatore/confronto aperto e dopo ogni lettura in primo piano
   (`foreground {}`: miniature visibili, anteprime del visualizzatore). Il visualizzatore ha una coda sua (`ioViewer`).
-  Nel pager solo la pagina a schermo carica la piena risoluzione; le vicine caricano l'anteprima solo dopo.
+  Nel pager solo la pagina a schermo carica la piena risoluzione (dopo 300 ms di sosta); le vicine caricano
+  l'anteprima dopo quella della corrente. La piena risoluzione JPEG viene prima copiata in `cacheDir/full`
+  (max 40 file / 700 MB) e telephoto la legge da file: niente letture SD durante lo zoom.
+- Diagnostica: impostazione "Mostra tempi di caricamento" (overlay nel visualizzatore).
+- La posizione della griglia (`LazyGridState`) vive nel ViewModel; al ritorno si porta sull'ultima foto vista.
 - `data/RawDecoder.kt` + `cpp/rawdecoder.cpp`: LibRaw via JNI (half-size, WB di macchina, sRGB 8 bit).
 - `data/Db.kt`: SQLite (voti, cache metadati, cartelle recenti). `data/Prefs.kt`: impostazioni.
 - `data/ImportWorker.kt`: copia con WorkManager in `Pictures/RAW Viewer/<data>/` tramite MediaStore, salta i duplicati.

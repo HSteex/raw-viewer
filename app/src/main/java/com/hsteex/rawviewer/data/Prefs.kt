@@ -20,6 +20,9 @@ class Prefs(context: Context) {
     private val _burstGap = MutableStateFlow(sp.getLong("burstGap", 1500L))
     val burstGapMs: StateFlow<Long> = _burstGap.asStateFlow()
 
+    private val _timings = MutableStateFlow(sp.getBoolean("timings", false))
+    val showTimings: StateFlow<Boolean> = _timings.asStateFlow()
+
     private val _importFormat = MutableStateFlow(
         runCatching { ImportFormat.valueOf(sp.getString("importFormat", null) ?: "JPEG") }.getOrDefault(ImportFormat.JPEG)
     )
@@ -29,5 +32,6 @@ class Prefs(context: Context) {
     fun setSwipe(v: Boolean) { _swipe.value = v; sp.edit().putBoolean("swipe", v).apply() }
     fun setColumns(v: Int) { _columns.value = v.coerceIn(2, 6); sp.edit().putInt("columns", _columns.value).apply() }
     fun setBurstGap(v: Long) { _burstGap.value = v; sp.edit().putLong("burstGap", v).apply() }
+    fun setShowTimings(v: Boolean) { _timings.value = v; sp.edit().putBoolean("timings", v).apply() }
     fun setImportFormat(v: ImportFormat) { _importFormat.value = v; sp.edit().putString("importFormat", v.name).apply() }
 }

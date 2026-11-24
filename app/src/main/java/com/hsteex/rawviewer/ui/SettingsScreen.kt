@@ -63,6 +63,7 @@ fun SettingsScreen(vm: MainViewModel) {
     val columns by p.columns.collectAsStateWithLifecycle()
     val burstGap by p.burstGapMs.collectAsStateWithLifecycle()
     val format by p.importFormat.collectAsStateWithLifecycle()
+    val timings by p.showTimings.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var cacheSize by remember { mutableLongStateOf(-1L) }
@@ -92,6 +93,14 @@ fun SettingsScreen(vm: MainViewModel) {
                     "Gesti di swipe",
                     "Nel visualizzatore: su = Scarica, giù = Scarta",
                     swipe, p::setSwipe,
+                )
+            }
+
+            Section("Diagnostica") {
+                SwitchRow(
+                    "Mostra tempi di caricamento",
+                    "Nel visualizzatore: quanto ci mettono anteprima e piena risoluzione",
+                    timings, p::setShowTimings,
                 )
             }
 

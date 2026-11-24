@@ -2,6 +2,7 @@
 
 package com.hsteex.rawviewer.ui
 
+import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -88,6 +89,7 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
     val autoAdvance by vm.prefs.autoAdvance.collectAsStateWithLifecycle()
     val swipe by vm.prefs.swipeGestures.collectAsStateWithLifecycle()
     val canUndo by vm.canUndo.collectAsStateWithLifecycle()
+    val showTimings by vm.prefs.showTimings.collectAsStateWithLifecycle()
     val keys = screen.keys
     val pager = rememberPagerState(initialPage = screen.start) { keys.size }
     var chrome by remember { mutableStateOf(true) }
@@ -101,12 +103,14 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
     val current = currentKey?.let { shotMap[it] }
     val rating = currentKey?.let { ratings[it] } ?: Rating()
 
-    // Priorità: prima la foto a schermo (anteprima e poi piena risoluzione), solo dopo le vicine.
+    // Priorità: prima l'anteprima della foto a schermo, poi le anteprime delle vicine;
+    // la piena risoluzione solo se ci si ferma sulla foto.
     val settled = pager.settledPage
     var readyKey by remember { mutableStateOf<String?>(null) }
     var warmKey by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(settled, shotMap) {
         val k = keys.getOrNull(settled) ?: return@LaunchedEffect
+        vm.lastViewedKey = k
         withTimeoutOrNull(NEIGHBOR_WAIT_MS) { snapshotFlow { readyKey }.first { it == k } }
         warmKey = k
         // le pagine ±1 caricano da sole la loro anteprima; qui si porta avanti la +2
@@ -151,8 +155,8 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
                     raw = showRaw && vm.repo.canDevelopRaw(s),
                     active = page == settled,
                     warm = warm,
-                    onPreview = { vm.publishMeta(s) },
-                    onDisplayed = { readyKey = s.key },
+                    showTimings = showTimings,
+                    onPreview = { vm.publishMeta(s); readyKey = s.key },
                     onTap = { chrome = !chrome },
                     swipeEnabled = swipe,
                     onSwipe = { up -> flag(s.key, if (up) Flag.PICK else Flag.REJECT) },
@@ -255,6 +259,8 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
 }
 
 private const val NEIGHBOR_WAIT_MS = 1500L
+/** Se si resta sulla foto almeno questo tempo, parte la piena risoluzione (scorrendo veloce si leggono solo anteprime). */
+private const val FULL_RES_DELAY_MS = 300L
 
 /**
  * Una foto del visualizzatore.
@@ -271,13 +277,19 @@ fun ViewerPage(
     onTap: () -> Unit,
     swipeEnabled: Boolean,
     onSwipe: (up: Boolean) -> Unit,
+    showTimings: Boolean = false,
     onPreview: () -> Unit = {},
-    onDisplayed: () -> Unit = {},
 ) {
     var source by remember(shot.key, raw) { mutableStateOf<SubSamplingImageSource?>(null) }
     var failed by remember(shot.key, raw) { mutableStateOf(false) }
     var preview by remember(shot.key) { mutableStateOf(repo.peekPreview(shot)) }
     val gridThumb = remember(shot.key) { repo.peekGrid(shot) }
+    // diagnostica: tempi dall'arrivo sulla pagina
+    var t0 by remember(shot.key, raw) { mutableStateOf(0L) }
+    var tPreview by remember(shot.key, raw) { mutableStateOf<Long?>(null) }
+    var tSource by remember(shot.key, raw) { mutableStateOf<Long?>(null) }
+    var tFull by remember(shot.key, raw) { mutableStateOf<Long?>(null) }
+    val hadPreview = remember(shot.key) { preview != null }
 
     // pagina vicina: solo l'anteprima (~1600px), e solo dopo che quella a schermo è pronta
     LaunchedEffect(shot.key, active, warm) {
@@ -287,14 +299,14 @@ fun ViewerPage(
     // che finisca, l'effetto viene annullato e la banda passa alla nuova pagina.
     LaunchedEffect(shot.key, raw, active) {
         if (!active || source != null || failed) return@LaunchedEffect
+        t0 = SystemClock.uptimeMillis()
         if (preview == null) preview = runCatching { repo.preview(shot) }.getOrNull()
+        tPreview = SystemClock.uptimeMillis() - t0
         onPreview()
-        if (raw) onDisplayed() // lo sviluppo è lungo: non blocca le vicine
+        if (preview != null) delay(FULL_RES_DELAY_MS)
         val s = runCatching { if (raw) repo.rawSource(shot) else repo.viewerSource(shot) }.getOrNull()
-        if (s == null) {
-            failed = true
-            onDisplayed()
-        } else source = s
+        tSource = SystemClock.uptimeMillis() - t0
+        if (s == null) failed = true else source = s
     }
     val threshold = with(LocalDensity.current) { 90.dp.toPx() }
 
@@ -326,9 +338,11 @@ fun ViewerPage(
         } else {
             val zoom = rememberZoomableState(zoomSpec = ZoomSpec(maxZoomFactor = 3f))
             val state = rememberSubSamplingImageState(imageSource = src, zoomableState = zoom)
-            LaunchedEffect(state) {
-                snapshotFlow { state.isImageDisplayedInFullQuality }.first { it }
-                onDisplayed()
+            if (showTimings) {
+                LaunchedEffect(state) {
+                    snapshotFlow { state.isImageDisplayedInFullQuality }.first { it }
+                    if (t0 > 0) tFull = SystemClock.uptimeMillis() - t0
+                }
             }
             var drag by remember { mutableFloatStateOf(0f) }
             val notZoomed = { (zoom.zoomFraction ?: 0f) < 0.02f }
@@ -373,6 +387,23 @@ fun ViewerPage(
                         .padding(horizontal = 20.dp, vertical = 10.dp),
                 )
             }
+        }
+        if (showTimings && t0 > 0) {
+            val parts = listOfNotNull(
+                tPreview?.let { (if (hadPreview) "anteprima già in memoria" else "anteprima $it ms") },
+                tSource?.let { (if (raw) "sviluppo" else "file pronto") + " $it ms" },
+                tFull?.let { "piena qualità $it ms" },
+            )
+            Text(
+                parts.joinToString("  ·  "),
+                color = Color.White, fontSize = 11.sp,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 64.dp)
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
         }
     }
 }

@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
@@ -77,6 +78,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Ultima modifica ai voti, per "Annulla". */
     private var undoSnapshot: Map<String, Rating>? = null
     val canUndo = MutableStateFlow(false)
+
+    /** Posizione della griglia: sopravvive all'apertura del visualizzatore. */
+    var gridState = LazyGridState()
+        private set
+
+    /** Ultima foto vista nel visualizzatore, per ritrovarla nella griglia al ritorno. */
+    var lastViewedKey: String? = null
 
     private var scanJob: Job? = null
     private var indexJob: Job? = null
@@ -168,6 +176,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun openRoot(r: RootEntry) {
         if (root.value?.uri != r.uri || shots.value.isEmpty()) {
             root.value = r
+            gridState = LazyGridState()
+            lastViewedKey = null
             filter.value = filter.value.copy(folder = null)
             selection.value = emptySet()
             startScan()
@@ -219,7 +229,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 indexing.value = 0 to total
                 val flusher = launch {
                     while (isActive) {
-                        delay(400)
+                        delay(1200)
                         flushMetas(buffer)
                         indexing.value = done.get() to total
                     }

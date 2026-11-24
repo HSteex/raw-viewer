@@ -14,6 +14,8 @@ import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -52,6 +54,8 @@ class ImageRepo(private val context: Context, private val db: Db) {
     }
     private val infoCache = ConcurrentHashMap<String, FileInfo>()
     private val diskDir = File(context.cacheDir, "thumbs").apply { mkdirs() }
+    /** Copie locali dei JPEG interi aperti nel visualizzatore (zoom senza toccare la SD). */
+    private val fullDir = File(context.cacheDir, "full").apply { mkdirs() }
 
     init {
         scope.launch { trimDiskCache() }
@@ -355,6 +359,11 @@ class ImageRepo(private val context: Context, private val db: Db) {
         val prevImg = prev?.asImageBitmap()
         val j = s.jpeg
         when {
+            j != null && j.kind == Kind.JPEG -> {
+                val local = foreground { localCopy(j) }
+                if (local != null) SubSamplingImageSource.file(local.toOkioPath(), prevImg)
+                else SubSamplingImageSource.contentUri(j.uri, prevImg)
+            }
             j != null -> SubSamplingImageSource.contentUri(j.uri, prevImg)
             s.raw != null -> {
                 val file = foreground { embeddedJpegFile(s.raw) } ?: prev?.let { bitmapFile(s, it) }
@@ -398,6 +407,53 @@ class ImageRepo(private val context: Context, private val db: Db) {
         return f
     }
 
+    /**
+     * Copia il file intero nella cache del telefono, a blocchi grandi e in un solo passaggio:
+     * è il modo più rapido di leggere dalla SD, e poi lo zoom (decoder a regioni) lavora su
+     * memoria locale con accesso casuale. Tornare su una foto già vista è istantaneo.
+     */
+    private suspend fun localCopy(f: MediaFile): File? {
+        val out = File(fullDir, hash(f.cacheId) + ".jpg")
+        if (out.exists() && out.length() == f.size) {
+            out.setLastModified(System.currentTimeMillis())
+            return out
+        }
+        val tmp = File(fullDir, out.name + ".tmp")
+        try {
+            val input = resolver.openInputStream(f.uri) ?: return null
+            input.use { inp ->
+                FileOutputStream(tmp).use { o ->
+                    val buf = ByteArray(1 shl 20)
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val n = inp.read(buf)
+                        if (n < 0) break
+                        o.write(buf, 0, n)
+                    }
+                }
+            }
+            if (!tmp.renameTo(out)) return null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            tmp.delete()
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "copy ${f.name}", e)
+            tmp.delete()
+            return null
+        }
+        trimFullCache()
+        return out
+    }
+
+    private fun trimFullCache() {
+        val files = fullDir.listFiles()?.sortedByDescending { it.lastModified() } ?: return
+        var total = 0L
+        files.forEachIndexed { i, f ->
+            total += f.length()
+            if (i >= MAX_FULL_FILES || total > MAX_FULL_DISK) f.delete()
+        }
+    }
+
     private fun bitmapFile(s: Shot, b: Bitmap): File {
         val f = File(diskDir, hash(s.display.cacheId) + ".prev.jpg")
         if (!f.exists()) FileOutputStream(f).use { b.compress(Bitmap.CompressFormat.JPEG, 92, it) }
@@ -429,12 +485,14 @@ class ImageRepo(private val context: Context, private val db: Db) {
         }
     }
 
-    fun diskCacheSize(): Long = diskDir.listFiles()?.sumOf { it.length() } ?: 0L
+    fun diskCacheSize(): Long =
+        (diskDir.listFiles()?.sumOf { it.length() } ?: 0L) + (fullDir.listFiles()?.sumOf { it.length() } ?: 0L)
 
     fun clearCaches() {
         gridCache.evictAll()
         previewCache.evictAll()
         diskDir.listFiles()?.forEach { it.delete() }
+        fullDir.listFiles()?.forEach { it.delete() }
     }
 
     companion object {
@@ -444,5 +502,7 @@ class ImageRepo(private val context: Context, private val db: Db) {
         private const val MAX_DISK = 800L shl 20
         /** Pausa minima del background dopo l'ultima lettura in primo piano. */
         private const val BG_COOLDOWN_MS = 700L
+        private const val MAX_FULL_FILES = 40
+        private const val MAX_FULL_DISK = 700L shl 20
     }
 }

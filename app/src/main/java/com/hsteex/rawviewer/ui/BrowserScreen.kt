@@ -30,7 +30,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -62,6 +62,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -113,7 +116,20 @@ fun BrowserScreen(vm: MainViewModel) {
     val work by vm.importWork.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val gridState = rememberLazyGridState()
+    val gridState = vm.gridState
+    // al ritorno dal visualizzatore: se la foto vista non è a schermo, ci si porta lì
+    LaunchedEffect(gridState) {
+        val k = vm.lastViewedKey ?: return@LaunchedEffect
+        vm.lastViewedKey = null
+        val idx = items.indexOfFirst { it.key == k || (it is GridItem.Burst && it.shots.any { s -> s.key == k }) }
+        if (idx < 0) return@LaunchedEffect
+        snapshotFlow { gridState.layoutInfo.totalItemsCount }.first { it > 0 }
+        val info = gridState.layoutInfo
+        val cell = info.visibleItemsInfo.firstOrNull { it.index == idx }
+        val fullyVisible = cell != null && cell.offset.y >= info.viewportStartOffset &&
+            cell.offset.y + cell.size.height <= info.viewportEndOffset - info.afterContentPadding
+        if (!fullyVisible) gridState.scrollToItem((idx - columns).coerceAtLeast(0))
+    }
     val scope = rememberCoroutineScope()
 
     var importReq by remember { mutableStateOf<ImportRequest?>(null) }
