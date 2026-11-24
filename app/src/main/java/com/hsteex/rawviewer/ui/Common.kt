@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
@@ -33,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,11 +53,16 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** Miniatura della griglia: subito quella EXIF (sfocata ma quasi gratis), poi quella vera. */
 @Composable
 fun rememberGridThumb(repo: ImageRepo, shot: Shot): Bitmap? {
-    var bmp by remember(shot.key) { mutableStateOf(repo.peekGrid(shot)) }
-    if (bmp == null) {
-        LaunchedEffect(shot.key) { bmp = repo.grid(shot) }
+    val ready = remember(shot.key) { repo.peekGrid(shot) }
+    var bmp by remember(shot.key) { mutableStateOf(ready ?: repo.peekQuick(shot)) }
+    if (ready == null) {
+        LaunchedEffect(shot.key) {
+            val quick = if (bmp == null) launch { repo.quickThumb(shot)?.let { q -> if (bmp == null) bmp = q } } else null
+            repo.grid(shot)?.let { quick?.cancel(); bmp = it }
+        }
     }
     return bmp
 }
@@ -137,6 +144,15 @@ fun FlagMarker(flag: Flag, modifier: Modifier = Modifier) {
         )
         Flag.NONE -> {}
     }
+}
+
+/** Scatto già copiato sul telefono. */
+@Composable
+fun DownloadedMarker(modifier: Modifier = Modifier) {
+    Icon(
+        Icons.Filled.DownloadDone, "Già scaricata", tint = Color.Black,
+        modifier = modifier.size(20.dp).clip(CircleShape).background(DownloadedBlue).padding(3.dp),
+    )
 }
 
 fun formatSize(bytes: Long): String = when {

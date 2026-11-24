@@ -27,7 +27,8 @@ import java.util.Locale
 /** Copia in background dalla SD a Immagini/RAW Viewer/<data>/ tramite MediaStore. */
 class ImportWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
-    data class Item(val uri: String, val name: String, val size: Long, val relPath: String, val time: Long)
+    /** [key]: chiave dello scatto (vuota nei lavori creati da versioni vecchie). */
+    data class Item(val uri: String, val name: String, val size: Long, val relPath: String, val time: Long, val key: String)
 
     private val resolver = context.contentResolver
     private val nm = context.getSystemService(NotificationManager::class.java)
@@ -44,12 +45,29 @@ class ImportWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         var skipped = 0
         var failed = 0
         var bytes = 0L
+        // i file di uno scatto sono consecutivi: lo scatto è "scaricato" quando sono tutti sul telefono
+        val db = (applicationContext as? com.hsteex.rawviewer.App)?.db
+        var shotKey = ""
+        var shotOk = true
+        fun closeShot() {
+            if (shotKey.isNotEmpty() && shotOk) runCatching { db?.markDownloaded(listOf(shotKey)) }
+        }
         for ((i, it) in items.withIndex()) {
             if (isStopped) break
+            if (it.key != shotKey) {
+                closeShot()
+                shotKey = it.key
+                shotOk = true
+            }
             when (copyOne(it)) {
                 Outcome.COPIED -> { copied++; bytes += it.size }
                 Outcome.SKIPPED -> skipped++
-                Outcome.FAILED -> failed++
+                Outcome.FAILED -> { failed++; shotOk = false }
+            }
+            // l'ultimo file dello scatto: lo si segna subito, così la griglia si aggiorna durante la copia
+            if (i == items.lastIndex || items[i + 1].key != shotKey) {
+                closeShot()
+                shotKey = ""
             }
             setProgress(workDataOf(KEY_DONE to i + 1, KEY_TOTAL to total, KEY_FAILED to failed))
             runCatching { nm.notify(NOTIF_ID, buildNotification(i + 1, total)) }
@@ -183,7 +201,7 @@ class ImportWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 for (f in files) {
                     arr.put(JSONObject().apply {
                         put("uri", f.uri.toString()); put("name", f.name); put("size", f.size)
-                        put("rel", rel); put("time", time)
+                        put("rel", rel); put("time", time); put("key", s.key)
                     })
                 }
             }
@@ -203,7 +221,7 @@ class ImportWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             val arr = JSONArray(f.readText())
             return (0 until arr.length()).map {
                 val o = arr.getJSONObject(it)
-                Item(o.getString("uri"), o.getString("name"), o.getLong("size"), o.getString("rel"), o.optLong("time"))
+                Item(o.getString("uri"), o.getString("name"), o.getLong("size"), o.getString("rel"), o.optLong("time"), o.optString("key", ""))
             }
         }
     }

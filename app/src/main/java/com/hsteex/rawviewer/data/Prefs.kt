@@ -32,6 +32,11 @@ class Prefs(context: Context) {
     fun setSwipe(v: Boolean) { _swipe.value = v; sp.edit().putBoolean("swipe", v).apply() }
     fun setColumns(v: Int) { _columns.value = v.coerceIn(2, 6); sp.edit().putInt("columns", _columns.value).apply() }
     fun setBurstGap(v: Long) { _burstGap.value = v; sp.edit().putLong("burstGap", v).apply() }
+    /** Id dell'ultimo lavoro di copia il cui esito è già stato visto (il banner non torna). */
+    var dismissedImport: String?
+        get() = sp.getString("dismissedImport", null)
+        set(v) { sp.edit().putString("dismissedImport", v).apply() }
+
     fun setShowTimings(v: Boolean) { _timings.value = v; sp.edit().putBoolean("timings", v).apply() }
     fun setImportFormat(v: ImportFormat) { _importFormat.value = v; sp.edit().putString("importFormat", v.name).apply() }
 }

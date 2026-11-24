@@ -8,12 +8,12 @@ import android.database.sqlite.SQLiteOpenHelper
 import android.net.Uri
 
 /** Database interno: voti, cache dei metadati e cartelle recenti. */
-class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 1) {
+class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             "CREATE TABLE ratings(key TEXT PRIMARY KEY, stars INTEGER NOT NULL DEFAULT 0, " +
-                "flag INTEGER NOT NULL DEFAULT 0, updated INTEGER NOT NULL)"
+                "flag INTEGER NOT NULL DEFAULT 0, updated INTEGER NOT NULL, downloaded INTEGER NOT NULL DEFAULT 0)"
         )
         db.execSQL(
             "CREATE TABLE meta(doc TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, date INTEGER, " +
@@ -24,14 +24,16 @@ class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 1) 
         db.execSQL("CREATE TABLE roots(uri TEXT PRIMARY KEY, name TEXT, last INTEGER)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) db.execSQL("ALTER TABLE ratings ADD COLUMN downloaded INTEGER NOT NULL DEFAULT 0")
+    }
 
     // ---------- ratings ----------
 
     fun loadRatings(): Map<String, Rating> {
         val out = HashMap<String, Rating>()
-        readableDatabase.rawQuery("SELECT key, stars, flag FROM ratings", null).use { c ->
-            while (c.moveToNext()) out[c.getString(0)] = Rating(c.getInt(1), Flag.of(c.getInt(2)))
+        readableDatabase.rawQuery("SELECT key, stars, flag, downloaded FROM ratings", null).use { c ->
+            while (c.moveToNext()) out[c.getString(0)] = Rating(c.getInt(1), Flag.of(c.getInt(2)), c.getInt(3) != 0)
         }
         return out
     }
@@ -47,6 +49,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 1) 
                 } else {
                     val v = ContentValues().apply {
                         put("key", k); put("stars", r.stars); put("flag", r.flag.code); put("updated", now)
+                        put("downloaded", if (r.downloaded) 1 else 0)
                     }
                     db.insertWithOnConflict("ratings", null, v, SQLiteDatabase.CONFLICT_REPLACE)
                 }
@@ -55,6 +58,39 @@ class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 1) 
         } finally {
             db.endTransaction()
         }
+    }
+
+    /** Segna gli scatti come copiati sul telefono e toglie il ✓ "da scaricare" (stelle e ✗ restano). */
+    fun markDownloaded(keys: Collection<String>) {
+        if (keys.isEmpty()) return
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val now = System.currentTimeMillis()
+            for (k in keys) {
+                db.execSQL(
+                    "UPDATE ratings SET downloaded=1, flag=CASE WHEN flag=${Flag.PICK.code} THEN 0 ELSE flag END, updated=? WHERE key=?",
+                    arrayOf<Any>(now, k),
+                )
+                val exists = db.rawQuery("SELECT 1 FROM ratings WHERE key=?", arrayOf(k)).use { it.moveToFirst() }
+                if (!exists) {
+                    db.insert("ratings", null, ContentValues().apply {
+                        put("key", k); put("stars", 0); put("flag", 0); put("updated", now); put("downloaded", 1)
+                    })
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun loadDownloaded(): Set<String> {
+        val out = HashSet<String>()
+        readableDatabase.rawQuery("SELECT key FROM ratings WHERE downloaded=1", null).use { c ->
+            while (c.moveToNext()) out += c.getString(0)
+        }
+        return out
     }
 
     // ---------- meta cache ----------

@@ -1,7 +1,7 @@
 package com.hsteex.rawviewer.data
 
 enum class FlagFilter(val label: String) {
-    ALL("Tutte"), UNRATED("Da valutare"), PICK("✓ Scarica"), REJECT("✗ Scartate"), NOT_REJECTED("Non scartate")
+    ALL("Tutte"), UNRATED("Da valutare"), PICK("✓ Scarica"), REJECT("✗ Scartate"), NOT_REJECTED("Non scartate"), DOWNLOADED("⬇ Scaricate")
 }
 
 enum class TypeFilter(val label: String) {
@@ -51,10 +51,11 @@ object Library {
             val r = ratings[s.key] ?: Rating()
             val flagOk = when (f.flag) {
                 FlagFilter.ALL -> true
-                FlagFilter.UNRATED -> r.isEmpty
+                FlagFilter.UNRATED -> r.isUnrated && !r.downloaded
                 FlagFilter.PICK -> r.flag == Flag.PICK
                 FlagFilter.REJECT -> r.flag == Flag.REJECT
                 FlagFilter.NOT_REJECTED -> r.flag != Flag.REJECT
+                FlagFilter.DOWNLOADED -> r.downloaded
             }
             val typeOk = when (f.type) {
                 TypeFilter.ALL -> true

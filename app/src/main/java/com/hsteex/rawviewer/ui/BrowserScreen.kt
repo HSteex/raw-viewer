@@ -96,6 +96,14 @@ import com.hsteex.rawviewer.data.Rating
 import com.hsteex.rawviewer.data.Shot
 import com.hsteex.rawviewer.data.Sort
 import com.hsteex.rawviewer.data.TypeFilter
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.draw.clip
+import kotlinx.coroutines.delay
 
 private class ImportRequest(val shots: List<Shot>, val title: String)
 
@@ -133,7 +141,7 @@ fun BrowserScreen(vm: MainViewModel) {
     val scope = rememberCoroutineScope()
 
     var importReq by remember { mutableStateOf<ImportRequest?>(null) }
-    var dismissedWork by rememberSaveable { mutableStateOf<String?>(null) }
+    val dismissedWork by vm.dismissedImport.collectAsStateWithLifecycle()
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     val picked = remember(allShots, ratings) { allShots.count { ratings[it.key]?.flag == Flag.PICK } }
@@ -244,7 +252,7 @@ fun BrowserScreen(vm: MainViewModel) {
                 }
                 ScanState.Idle -> {}
             }
-            ImportStatus(work, dismissedWork, onCancel = { vm.cancelImport() }, onDismiss = { dismissedWork = it })
+            ImportStatus(work, dismissedWork, onCancel = { vm.cancelImport() }, onDismiss = { vm.dismissImport(it) })
 
             FilterBar(
                 filter = filter, folders = folders,
@@ -264,9 +272,9 @@ fun BrowserScreen(vm: MainViewModel) {
                 columns = GridCells.Fixed(columns),
                 state = gridState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 96.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                contentPadding = PaddingValues(start = 3.dp, end = 3.dp, top = 3.dp, bottom = 96.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 items(items, key = { it.key }, contentType = { if (it is GridItem.Burst) 1 else 0 }) { item ->
                     when (item) {
@@ -320,13 +328,14 @@ fun BrowserScreen(vm: MainViewModel) {
                 importReq = null
                 if (Build.VERSION.SDK_INT >= 33) notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                 val n = vm.startImport(req.shots, fmt)
-                dismissedWork = null
                 Toast.makeText(context, "Copia di $n file avviata", Toast.LENGTH_SHORT).show()
                 if (selecting) vm.clearSelection()
             },
         )
     }
 }
+
+private val GrayFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
 
 @Composable
 private fun StatusText(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
@@ -339,18 +348,41 @@ private fun ImportStatus(work: WorkInfo?, dismissed: String?, onCancel: () -> Un
     val p = if (work.state.isFinished) work.outputData else work.progress
     val done = p.getInt(ImportWorker.KEY_DONE, 0)
     val total = p.getInt(ImportWorker.KEY_TOTAL, 0)
+    // a copia riuscita senza errori il banner si chiude da solo; con errori o annullata resta finché non premi OK
+    if (work.state == WorkInfo.State.SUCCEEDED && p.getInt(ImportWorker.KEY_FAILED, 0) == 0) {
+        LaunchedEffect(work.id) {
+            delay(4000)
+            onDismiss(work.id.toString())
+        }
+    }
     Row(
-        Modifier.fillMaxWidth().background(Surface1).padding(horizontal = 16.dp, vertical = 6.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Surface2)
+            .padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(
+            if (work.state.isFinished) Icons.Filled.DownloadDone else Icons.Filled.Download, null,
+            tint = when (work.state) {
+                WorkInfo.State.SUCCEEDED -> PickGreen
+                WorkInfo.State.FAILED -> RejectRed
+                WorkInfo.State.CANCELLED -> MaterialTheme.colorScheme.onSurfaceVariant
+                else -> DownloadedBlue
+            },
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             when (work.state) {
                 WorkInfo.State.RUNNING, WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> {
                     Text(if (total > 0) "Copia sul telefono: $done di $total" else "Copia in preparazione…", fontSize = 13.sp)
                     LinearProgressIndicator(
                         progress = { if (total == 0) 0f else done.toFloat() / total },
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        color = PickGreen,
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp).clip(RoundedCornerShape(2.dp)),
+                        color = DownloadedBlue,
                     )
                 }
                 WorkInfo.State.SUCCEEDED -> {
@@ -449,9 +481,11 @@ private fun ShotCell(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
+    val rejected = rating.flag == Flag.REJECT
     Box(
         Modifier
             .aspectRatio(1f)
+            .clip(RoundedCornerShape(6.dp))
             .background(Surface1)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
@@ -460,23 +494,36 @@ private fun ShotCell(
             val img = remember(bmp) { bmp.asImageBitmap() }
             Image(
                 img, shot.baseName, Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
-                alpha = if (rating.flag == Flag.REJECT) 0.35f else 1f,
+                alpha = if (rejected) 0.4f else 1f,
+                colorFilter = if (rejected) GrayFilter else null,
+            )
+        }
+        // velo in basso per leggere stelle e raffica su qualsiasi foto
+        if (rating.stars > 0 || burstCount != null) {
+            Box(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.32f)
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)))),
             )
         }
         Badge(shot.badge, Modifier.align(Alignment.TopStart).padding(4.dp))
-        FlagMarker(rating.flag, Modifier.align(Alignment.TopEnd).padding(4.dp))
+        Row(
+            Modifier.align(Alignment.TopEnd).padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            if (rating.downloaded) DownloadedMarker()
+            FlagMarker(rating.flag)
+        }
         if (rating.stars > 0) {
             Text(
-                "★".repeat(rating.stars), color = StarYellow, fontSize = 11.sp,
-                modifier = Modifier.align(Alignment.BottomStart).padding(4.dp)
-                    .background(Color.Black.copy(alpha = 0.5f)).padding(horizontal = 3.dp),
+                "★".repeat(rating.stars), color = StarYellow, fontSize = 12.sp,
+                modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 5.dp, vertical = 3.dp),
             )
         }
         if (burstCount != null) {
             Badge("▣ $burstCount", Modifier.align(Alignment.BottomEnd).padding(4.dp), color = Accent.copy(alpha = 0.9f))
         }
         if (selected) {
-            Box(Modifier.fillMaxSize().border(3.dp, Accent).background(Accent.copy(alpha = 0.18f)))
+            Box(Modifier.fillMaxSize().border(3.dp, Accent, RoundedCornerShape(6.dp)).background(Accent.copy(alpha = 0.18f)))
             Icon(
                 Icons.Filled.CheckCircle, null, tint = Accent,
                 modifier = Modifier.align(Alignment.Center).size(32.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape),

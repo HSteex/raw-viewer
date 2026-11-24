@@ -167,8 +167,14 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
         }
 
         // indicatore dello stato anche a interfaccia nascosta
-        if (!chrome && rating.flag != Flag.NONE) {
-            FlagMarker(rating.flag, Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp))
+        if (!chrome && (rating.flag != Flag.NONE || rating.downloaded)) {
+            Row(
+                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (rating.downloaded) DownloadedMarker()
+                FlagMarker(rating.flag)
+            }
         }
 
         AnimatedVisibility(chrome, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
@@ -184,7 +190,8 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
                 Column(Modifier.weight(1f)) {
                     Text(current?.baseName ?: "", color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
                     Text(
-                        "${pager.currentPage + 1} / ${keys.size}" + (current?.let { "  ·  " + it.badge } ?: ""),
+                        "${pager.currentPage + 1} / ${keys.size}" + (current?.let { "  ·  " + it.badge } ?: "") +
+                            if (rating.downloaded) "  ·  ⬇ già scaricata" else "",
                         color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp,
                     )
                 }

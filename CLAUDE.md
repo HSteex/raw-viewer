@@ -31,6 +31,11 @@ legge la SD con un **adattatore USB-C** e scrive in italiano: UI e messaggi in i
   (max 40 file / 700 MB) e telephoto la legge da file: niente letture SD durante lo zoom.
 - Diagnostica: impostazione "Mostra tempi di caricamento" (overlay nel visualizzatore).
 - La posizione della griglia (`LazyGridState`) vive nel ViewModel; al ritorno si porta sull'ultima foto vista.
+- Griglia: le celle mostrano subito la miniatura EXIF (`quickThumb`, solo per scatti già indicizzati), poi quella
+  da 640px. Le miniature in background si generano partendo dalla posizione di scorrimento della griglia.
+- "Scaricata": colonna `downloaded` in `ratings` (DB v2). `ImportWorker` segna ogni scatto quando tutti i suoi file
+  sono sul telefono (copiati o già presenti) e toglie il ✓; il ViewModel la rilegge a ogni avanzamento della copia.
+  Il banner della copia si chiude da solo se è andata bene; l'id chiuso è salvato in `Prefs.dismissedImport`.
 - `data/RawDecoder.kt` + `cpp/rawdecoder.cpp`: LibRaw via JNI (half-size, WB di macchina, sRGB 8 bit).
 - `data/Db.kt`: SQLite (voti, cache metadati, cartelle recenti). `data/Prefs.kt`: impostazioni.
 - `data/ImportWorker.kt`: copia con WorkManager in `Pictures/RAW Viewer/<data>/` tramite MediaStore, salta i duplicati.

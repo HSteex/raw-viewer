@@ -108,10 +108,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         .map { list -> list.firstOrNull { it.state == WorkInfo.State.RUNNING } ?: list.lastOrNull() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    /** Esito di copia già visto/chiuso: persiste, così il banner non ricompare a ogni apertura. */
+    val dismissedImport = MutableStateFlow(prefs.dismissedImport)
+
+    fun dismissImport(id: String) {
+        prefs.dismissedImport = id
+        dismissedImport.value = id
+    }
+
     init {
         viewModelScope.launch(Dispatchers.IO) {
             ratings.value = db.loadRatings()
             roots.value = db.listRoots()
+        }
+        // durante e dopo una copia: gli scatti copiati perdono il ✓ e diventano "scaricati"
+        viewModelScope.launch {
+            var lastDone = -1
+            importWork.collect { w ->
+                if (w == null) return@collect
+                val done = (if (w.state.isFinished) w.outputData else w.progress).getInt(ImportWorker.KEY_DONE, 0)
+                if (done != lastDone || w.state.isFinished) {
+                    lastDone = done
+                    syncDownloaded()
+                }
+            }
         }
         // col visualizzatore aperto la banda della SD è tutta per la foto a schermo
         viewModelScope.launch {
@@ -248,10 +268,46 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 flushMetas(buffer)
             }
             indexing.value = null
-            // miniature su disco, nell'ordine in cui le vedrai
-            val sem = Semaphore(2)
-            filtered.value.map { s -> launch { sem.withPermit { runCatching { repo.ensureGridOnDisk(s) } } } }
-                .forEach { it.join() }
+            // miniature su disco: si parte sempre da dove sei nella griglia, poi verso il basso e l'alto
+            val order = filtered.value
+            val pos = HashMap<String, Int>(order.size * 2).apply { order.forEachIndexed { i, s -> put(s.key, i) } }
+            val taken = BooleanArray(order.size)
+            var left = order.size
+            val lock = Any()
+            fun anchor(): Int {
+                val items = gridItems.value
+                val first = items.getOrNull(gridState.firstVisibleItemIndex) ?: return 0
+                val key = when (first) {
+                    is GridItem.Single -> first.shot.key
+                    is GridItem.Burst -> first.cover.key
+                }
+                return pos[key] ?: 0
+            }
+            fun next(): Shot? = synchronized(lock) {
+                if (left == 0) return null
+                val a = anchor().coerceIn(0, order.lastIndex)
+                // prima la schermata attuale e quelle sotto (verso dove si scorre), poi sopra
+                var d = 0
+                while (a + d < order.size || a - d >= 0) {
+                    val down = a + d
+                    if (down < order.size && !taken[down]) { taken[down] = true; left--; return order[down] }
+                    val up = a - d / 2 - 1
+                    if (d % 2 == 1 && up >= 0 && !taken[up]) { taken[up] = true; left--; return order[up] }
+                    d++
+                }
+                val i = taken.indexOfFirst { !it }
+                if (i < 0) return null
+                taken[i] = true; left--
+                order[i]
+            }
+            List(2) {
+                launch {
+                    while (true) {
+                        val s = next() ?: break
+                        runCatching { repo.ensureGridOnDisk(s) }
+                    }
+                }
+            }.forEach { it.join() }
         }
     }
 
@@ -259,6 +315,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun publishMeta(s: Shot) {
         val m = repo.metaFor(s) ?: return
         if (metas.value[s.key] != m) metas.value = metas.value + (s.key to m)
+    }
+
+    private suspend fun syncDownloaded() {
+        val keys = withContext(Dispatchers.IO) { runCatching { db.loadDownloaded() }.getOrDefault(emptySet()) }
+        val cur = ratings.value
+        val changed = keys.filter { cur[it]?.downloaded != true }
+        if (changed.isEmpty()) return
+        val next = HashMap(cur)
+        for (k in changed) {
+            val old = cur[k] ?: Rating()
+            next[k] = old.copy(downloaded = true, flag = if (old.flag == Flag.PICK) Flag.NONE else old.flag)
+        }
+        ratings.value = next
     }
 
     private fun flushMetas(buffer: ConcurrentHashMap<String, PhotoMeta>) {

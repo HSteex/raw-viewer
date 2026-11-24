@@ -49,8 +49,12 @@ enum class Flag(val code: Int) {
     }
 }
 
-data class Rating(val stars: Int = 0, val flag: Flag = Flag.NONE) {
-    val isEmpty: Boolean get() = stars == 0 && flag == Flag.NONE
+/** Voto di uno scatto. [downloaded]: già copiato sul telefono (non è un voto, ma vive nella stessa riga). */
+data class Rating(val stars: Int = 0, val flag: Flag = Flag.NONE, val downloaded: Boolean = false) {
+    /** Nessun voto dato (stelle o ✓/✗). */
+    val isUnrated: Boolean get() = stars == 0 && flag == Flag.NONE
+    /** Niente da salvare nel DB. */
+    val isEmpty: Boolean get() = isUnrated && !downloaded
 }
 
 data class PhotoMeta(

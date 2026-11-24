@@ -52,6 +52,11 @@ class ImageRepo(private val context: Context, private val db: Db) {
     private val previewCache = object : LruCache<String, Bitmap>((maxMem / 5).coerceAtMost(256L shl 20).toInt()) {
         override fun sizeOf(key: String, value: Bitmap) = value.allocationByteCount
     }
+    /** Miniature EXIF (~160px): segnaposto immediato mentre arriva quella vera. */
+    private val quickCache = object : LruCache<String, Bitmap>(16 shl 20) {
+        override fun sizeOf(key: String, value: Bitmap) = value.allocationByteCount
+    }
+    private val ioQuick = Dispatchers.IO.limitedParallelism(2)
     private val infoCache = ConcurrentHashMap<String, FileInfo>()
     private val diskDir = File(context.cacheDir, "thumbs").apply { mkdirs() }
     /** Copie locali dei JPEG interi aperti nel visualizzatore (zoom senza toccare la SD). */
@@ -297,6 +302,45 @@ class ImageRepo(private val context: Context, private val db: Db) {
 
     fun peekGrid(s: Shot): Bitmap? = gridCache.get(s.key)
 
+    fun peekQuick(s: Shot): Bitmap? = quickCache.get(s.key)
+
+    /**
+     * Miniatura EXIF incorporata: pochi KB da leggere, quindi quasi istantanea anche dalla SD.
+     * Solo per scatti già indicizzati (non apre il file per analizzarlo) e solo se la vera non è già su disco.
+     */
+    suspend fun quickThumb(s: Shot): Bitmap? {
+        quickCache.get(s.key)?.let { return it }
+        return withContext(ioQuick) {
+            if (gridFile(s).exists()) return@withContext null
+            val j = s.jpeg?.takeIf { it.kind == Kind.JPEG }
+            val src = j?.let { f -> infoCache[f.docId]?.let { f to it } }?.takeIf { it.second.thumbLen > 0 }
+                ?: s.raw?.let { f -> infoCache[f.docId]?.let { f to it } }?.takeIf { it.second.thumbLen > 0 }
+                ?: return@withContext null
+            val (f, i) = src
+            val bytes = runCatching { withReader(f.uri) { it.read(i.thumbOff, i.thumbLen) } }.getOrNull() ?: return@withContext null
+            var bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@withContext null
+            bmp = cropToAspect(bmp, i.meta.width, i.meta.height)
+            rotate(bmp, i.meta.orientation).also { quickCache.put(s.key, it) }
+        }
+    }
+
+    /** Le miniature EXIF Fuji sono 160×120 con bande nere sui 3:2: si ritaglia al formato della foto. */
+    private fun cropToAspect(b: Bitmap, w: Int?, h: Int?): Bitmap {
+        if (w == null || h == null || w <= 0 || h <= 0) return b
+        val want = max(w, h).toFloat() / minOf(w, h)
+        val landscape = b.width >= b.height
+        val have = if (landscape) b.width.toFloat() / b.height else b.height.toFloat() / b.width
+        if (kotlin.math.abs(have - want) < 0.05f) return b
+        val out = if (landscape) {
+            if (want > have) { val nh = (b.width / want).toInt(); Bitmap.createBitmap(b, 0, (b.height - nh) / 2, b.width, nh) }
+            else { val nw = (b.height * want).toInt(); Bitmap.createBitmap(b, (b.width - nw) / 2, 0, nw, b.height) }
+        } else {
+            if (want > have) { val nw = (b.height / want).toInt(); Bitmap.createBitmap(b, (b.width - nw) / 2, 0, nw, b.height) }
+            else { val nh = (b.width * want).toInt(); Bitmap.createBitmap(b, 0, (b.height - nh) / 2, b.width, nh) }
+        }
+        return out
+    }
+
     private fun gridFile(s: Shot) = File(diskDir, hash(s.display.cacheId + "|" + (s.raw?.cacheId ?: "")) + ".g.jpg")
 
     suspend fun grid(s: Shot): Bitmap? = withContext(ioThumbs) { loadGrid(s, keepInMemory = true) }
@@ -490,6 +534,7 @@ class ImageRepo(private val context: Context, private val db: Db) {
 
     fun clearCaches() {
         gridCache.evictAll()
+        quickCache.evictAll()
         previewCache.evictAll()
         diskDir.listFiles()?.forEach { it.delete() }
         fullDir.listFiles()?.forEach { it.delete() }
