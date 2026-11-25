@@ -654,11 +654,32 @@ private fun ViewerDrawer(
             ) {
                 Box(Modifier.size(width = 36.dp, height = 4.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.45f)))
             }
-            if (exposureLine.isNotEmpty()) {
-                Text(
-                    exposureLine, color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
+            // dati di scatto e, a portata di pollice, il selettore JPEG/RAW
+            if (exposureLine.isNotEmpty() || rawChoice != null) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        exposureLine, color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                    )
+                    if (rawChoice != null) {
+                        Spacer(Modifier.width(8.dp))
+                        Row(Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.10f)).padding(3.dp)) {
+                            for ((label, raw) in listOf(rawChoice to false, "RAW" to true)) {
+                                val sel = showRaw == raw
+                                Text(
+                                    label,
+                                    color = if (sel) MaterialTheme.colorScheme.onPrimary else Color.White,
+                                    fontWeight = FontWeight.SemiBold, fontSize = 12.sp,
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(if (sel) Accent else Color.Transparent)
+                                        .clickable { onRaw(raw) }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                )
+                            }
+                        }
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -691,24 +712,6 @@ private fun ViewerDrawer(
                                 leadingIcon = { Icon(Icons.Filled.ZoomIn, null, Modifier.size(18.dp)) },
                                 colors = AssistChipDefaults.assistChipColors(labelColor = Color.White, leadingIconContentColor = Accent),
                             )
-                        }
-                    }
-                    if (rawChoice != null) {
-                        DrawerLabel("Sviluppo")
-                        Row(Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.10f)).padding(3.dp)) {
-                            for ((label, raw) in listOf(rawChoice to false, "RAW" to true)) {
-                                val sel = showRaw == raw
-                                Text(
-                                    label,
-                                    color = if (sel) MaterialTheme.colorScheme.onPrimary else Color.White,
-                                    fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .background(if (sel) Accent else Color.Transparent)
-                                        .clickable { onRaw(raw) }
-                                        .padding(horizontal = 16.dp, vertical = 7.dp),
-                                )
-                            }
                         }
                     }
                     DrawerLabel("Scatto")
