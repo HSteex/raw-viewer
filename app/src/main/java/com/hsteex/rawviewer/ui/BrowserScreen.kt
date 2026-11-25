@@ -548,6 +548,7 @@ private fun SheetSection(title: String, content: @Composable () -> Unit) {
 }
 
 /** Colore del filtro: lo stesso dei segni nella griglia (✓ verde, ✗ rosso, scaricate blu). */
+@Composable
 private fun FlagFilter.color(): Color = when (this) {
     FlagFilter.ALL -> Accent
     FlagFilter.UNRATED -> Color(0xFFE8E3DC)

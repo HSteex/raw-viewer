@@ -90,4 +90,8 @@ dependencies {
     implementation("me.saket.telephoto:zoomable:0.15.1")
     implementation("me.saket.telephoto:sub-sampling-image:0.15.1")
     implementation("com.squareup.okio:okio:3.9.1")
+
+    // Vetro opaco (sfocatura di ciò che sta dietro barre e pannelli). 1.2.2 = Compose 1.7.6 / Kotlin 2.1.0
+    implementation("dev.chrisbanes.haze:haze:1.2.2")
+    implementation("dev.chrisbanes.haze:haze-materials:1.2.2")
 }

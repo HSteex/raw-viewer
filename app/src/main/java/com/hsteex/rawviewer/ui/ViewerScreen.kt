@@ -646,6 +646,7 @@ private fun afFraction(m: PhotoMeta?): Offset? {
 @Composable
 private fun AnalysisOverlay(r: Rect, clip: ImageBitmap?, focus: ImageBitmap?, af: Offset?) {
     if (r.isEmpty || (clip == null && focus == null && af == null)) return
+    val afColor = Accent
     Canvas(Modifier.fillMaxSize()) {
         val dstOff = IntOffset(r.left.roundToInt(), r.top.roundToInt())
         val dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt())
@@ -657,7 +658,7 @@ private fun AnalysisOverlay(r: Rect, clip: ImageBitmap?, focus: ImageBitmap?, af
             val half = (minOf(r.width, r.height) * 0.04f).coerceIn(14.dp.toPx(), 60.dp.toPx())
             val stroke = Stroke(width = 2.dp.toPx())
             drawRect(Color.Black.copy(alpha = 0.5f), Offset(c.x - half, c.y - half), Size(half * 2, half * 2), style = Stroke(4.dp.toPx()))
-            drawRect(Accent, Offset(c.x - half, c.y - half), Size(half * 2, half * 2), style = stroke)
+            drawRect(afColor, Offset(c.x - half, c.y - half), Size(half * 2, half * 2), style = stroke)
         }
     }
 }

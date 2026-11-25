@@ -21,8 +21,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            RawTheme {
-                AppRoot(viewModel())
+            val vm: MainViewModel = viewModel()
+            val dynamic by vm.prefs.dynamicColor.collectAsStateWithLifecycle()
+            RawTheme(dynamic = dynamic) {
+                AppRoot(vm)
             }
         }
     }

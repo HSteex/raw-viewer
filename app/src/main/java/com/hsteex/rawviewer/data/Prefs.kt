@@ -32,6 +32,10 @@ class Prefs(context: Context) {
     private val _focus = MutableStateFlow(sp.getBoolean("focus", false))
     val showFocus: StateFlow<Boolean> = _focus.asStateFlow()
 
+    private val _dynamicColor = MutableStateFlow(sp.getBoolean("dynamicColor", true))
+    /** Material You: colori presi dallo sfondo del telefono (Android 12+). */
+    val dynamicColor: StateFlow<Boolean> = _dynamicColor.asStateFlow()
+
     private val _importFormat = MutableStateFlow(
         runCatching { ImportFormat.valueOf(sp.getString("importFormat", null) ?: "JPEG") }.getOrDefault(ImportFormat.JPEG)
     )
@@ -49,6 +53,7 @@ class Prefs(context: Context) {
     fun setShowHistogram(v: Boolean) { _histogram.value = v; sp.edit().putBoolean("histogram", v).apply() }
     fun setShowClipping(v: Boolean) { _clipping.value = v; sp.edit().putBoolean("clipping", v).apply() }
     fun setShowFocus(v: Boolean) { _focus.value = v; sp.edit().putBoolean("focus", v).apply() }
+    fun setDynamicColor(v: Boolean) { _dynamicColor.value = v; sp.edit().putBoolean("dynamicColor", v).apply() }
     fun setShowTimings(v: Boolean) { _timings.value = v; sp.edit().putBoolean("timings", v).apply() }
     fun setImportFormat(v: ImportFormat) { _importFormat.value = v; sp.edit().putString("importFormat", v.name).apply() }
 }
