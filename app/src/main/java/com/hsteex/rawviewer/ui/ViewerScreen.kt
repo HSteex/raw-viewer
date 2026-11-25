@@ -100,6 +100,23 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.hsteex.rawviewer.data.ImageStats
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.compose.animation.core.snap
+import androidx.compose.runtime.key
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import com.hsteex.rawviewer.data.PhotoMeta
+import kotlin.math.max
+import kotlin.math.roundToInt
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.mutableIntStateOf
 
 @Composable
 fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
@@ -112,6 +129,9 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
     val showTimings by vm.prefs.showTimings.collectAsStateWithLifecycle()
     val histogram by vm.prefs.showHistogram.collectAsStateWithLifecycle()
     val clipping by vm.prefs.showClipping.collectAsStateWithLifecycle()
+    val focus by vm.prefs.showFocus.collectAsStateWithLifecycle()
+    var afRequest by remember { mutableIntStateOf(0) }
+    var afKey by remember { mutableStateOf<String?>(null) }
     val keys = screen.keys
     val pager = rememberPagerState(initialPage = screen.start) { keys.size }
     var chrome by remember { mutableStateOf(true) }
@@ -181,6 +201,9 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
                     histogram = histogram,
                     clipping = clipping,
                     chrome = chrome,
+                    focus = focus,
+                    meta = metas[s.key] ?: vm.repo.metaFor(s),
+                    afRequest = if (afKey == s.key) afRequest else 0,
                     onPreview = { vm.publishMeta(s); readyKey = s.key },
                     onTap = { chrome = !chrome },
                     swipeEnabled = swipe,
@@ -221,8 +244,22 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
                     )
                 }
                 if (canUndo) IconButton(onClick = { vm.undo() }) { Icon(Icons.AutoMirrored.Filled.Undo, "Annulla voto", tint = Color.White) }
-                ToggleIcon(Icons.Filled.BarChart, "Istogramma", histogram) { vm.prefs.setShowHistogram(!histogram) }
-                ToggleIcon(Icons.Filled.Exposure, "Luci bruciate e ombre chiuse", clipping) { vm.prefs.setShowClipping(!clipping) }
+                Box {
+                    var open by remember { mutableStateOf(false) }
+                    ToggleIcon(Icons.Filled.Insights, "Analisi", histogram || clipping || focus) { open = true }
+                    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                        CheckItem("Istogramma", Icons.Filled.BarChart, histogram) { vm.prefs.setShowHistogram(!histogram) }
+                        CheckItem("Luci bruciate / ombre chiuse", Icons.Filled.Exposure, clipping) { vm.prefs.setShowClipping(!clipping) }
+                        CheckItem("Messa a fuoco (peaking + punto AF)", Icons.Filled.CenterFocusStrong, focus) { vm.prefs.setShowFocus(!focus) }
+                        val hasAf = current?.let { s -> (metas[s.key] ?: vm.repo.metaFor(s))?.focusX } != null
+                        DropdownMenuItem(
+                            text = { Text("Zoom al 100% sul punto AF") },
+                            leadingIcon = { Icon(Icons.Filled.ZoomIn, null) },
+                            enabled = hasAf,
+                            onClick = { open = false; afKey = currentKey; afRequest++ },
+                        )
+                    }
+                }
                 IconButton(onClick = { showInfo = true }) { Icon(Icons.Filled.Info, "Info", tint = Color.White) }
                 Box {
                     var more by remember { mutableStateOf(false) }
@@ -332,6 +369,10 @@ fun ViewerPage(
     chrome: Boolean = true,
     /** Stato dello zoom passato da fuori (confronto con zoom collegato); null = proprio. */
     zoomState: ZoomableState? = null,
+    focus: Boolean = false,
+    meta: PhotoMeta? = null,
+    /** Incrementato per chiedere lo zoom al 100% sul punto AF. */
+    afRequest: Int = 0,
     onPreview: () -> Unit = {},
 ) {
     var source by remember(shot.key, raw) { mutableStateOf<SubSamplingImageSource?>(null) }
@@ -359,6 +400,29 @@ fun ViewerPage(
             }
         }
     }
+    val focusMask by produceState<ImageBitmap?>(null, statsSrc, focus && active && !raw) {
+        value = null
+        if (statsSrc != null && focus && active && !raw) {
+            value = withContext(Dispatchers.Default) {
+                runCatching { ImageStats.focusMask(statsSrc).asImageBitmap() }.getOrNull()
+            }
+        }
+    }
+    val af = remember(meta) { afFraction(meta) }
+    // richieste già eseguite: tornando su una pagina non si rifà lo zoom
+    var afHandled by remember(shot.key) { mutableIntStateOf(afRequest) }
+    var boxSize by remember { mutableStateOf(IntSize.Zero) }
+    // doppio tocco = 100%: ingrandimento massimo pari ai pixel veri della foto (tra 2× e 12×)
+    val maxZoom = remember(meta, statsSrc, boxSize) {
+        val m = meta
+        val p = statsSrc
+        if (m?.width == null || m.height == null || p == null || boxSize.width == 0 || boxSize.height == 0) 3f
+        else {
+            val fullLong = max(m.width, m.height).toFloat()
+            val fit = fitRect(p.width.toFloat(), p.height.toFloat(), boxSize)
+            (fullLong / max(fit.width, fit.height)).coerceIn(2f, 12f)
+        }
+    }
 
     // pagina vicina: solo l'anteprima (~1600px), e solo dopo che quella a schermo è pronta
     LaunchedEffect(shot.key, active, warm) {
@@ -379,14 +443,17 @@ fun ViewerPage(
     }
     val threshold = with(LocalDensity.current) { 90.dp.toPx() }
 
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().onSizeChanged { boxSize = it }) {
         val src = source
         if (src == null) {
             val thumb = preview ?: gridThumb
             if (thumb != null) {
                 val img = remember(thumb) { thumb.asImageBitmap() }
                 Image(img, shot.baseName, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-                mask?.let { ClippingOverlay(it) }
+                AnalysisOverlay(
+                    fitRect(thumb.width.toFloat(), thumb.height.toFloat(), boxSize),
+                    mask, focusMask, if (focus) af else null,
+                )
             }
             if (failed) {
                 Text(
@@ -406,7 +473,19 @@ fun ViewerPage(
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
         } else {
-            val zoom = zoomState ?: rememberZoomableState(zoomSpec = ZoomSpec(maxZoomFactor = 3f))
+            val zoom = zoomState ?: key(maxZoom) { rememberZoomableState(zoomSpec = ZoomSpec(maxZoomFactor = maxZoom)) }
+            LaunchedEffect(zoom, afRequest) {
+                val p = af ?: return@LaunchedEffect
+                if (afRequest <= afHandled) return@LaunchedEffect
+                afHandled = afRequest
+                zoom.resetZoom(snap())
+                val b = zoom.transformedContentBounds
+                if (b.isEmpty) return@LaunchedEffect
+                zoom.zoomTo(zoom.zoomSpec.maximum.factor, centroid = Offset(b.left + p.x * b.width, b.top + p.y * b.height))
+                val nb = zoom.transformedContentBounds
+                val at = Offset(nb.left + p.x * nb.width, nb.top + p.y * nb.height)
+                zoom.panBy(Offset(boxSize.width / 2f, boxSize.height / 2f) - at)
+            }
             val state = rememberSubSamplingImageState(imageSource = src, zoomableState = zoom)
             // finché telephoto non ha disegnato niente resta sotto l'anteprima: niente fotogrammi neri
             if (!state.isImageDisplayed) {
@@ -448,8 +527,8 @@ fun ViewerPage(
                     .then(swipeMod)
                     .zoomable(zoom, onClick = { onTap() }),
             )
-            // la maschera è calcolata sull'anteprima: allineata solo a zoom 1
-            if (notZoomed()) mask?.let { ClippingOverlay(it) }
+            // le maschere seguono lo zoom: si disegnano nel rettangolo attuale della foto
+            AnalysisOverlay(zoom.transformedContentBounds, mask, focusMask, if (focus) af else null)
             if (abs(drag) > threshold / 3) {
                 val up = drag < 0
                 val strong = abs(drag) > threshold
@@ -499,6 +578,16 @@ fun ViewerPage(
 }
 
 @Composable
+private fun CheckItem(label: String, icon: ImageVector, checked: Boolean, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        leadingIcon = { Icon(icon, null, tint = if (checked) Accent else LocalContentColor.current) },
+        trailingIcon = { if (checked) Icon(Icons.Filled.Check, null, tint = Accent) },
+        onClick = onClick,
+    )
+}
+
+@Composable
 private fun ToggleIcon(icon: ImageVector, description: String, on: Boolean, onClick: () -> Unit) {
     IconButton(onClick = onClick) {
         Icon(
@@ -525,12 +614,51 @@ private fun FlagCircle(icon: ImageVector, description: String, active: Boolean, 
     }
 }
 
+/** Rettangolo occupato da un'immagine w×h adattata (Fit) in [box]. */
+private fun fitRect(w: Float, h: Float, box: IntSize): Rect {
+    if (w <= 0f || h <= 0f || box.width == 0 || box.height == 0) return Rect.Zero
+    val s = minOf(box.width / w, box.height / h)
+    val dw = w * s
+    val dh = h * s
+    return Rect(Offset((box.width - dw) / 2, (box.height - dh) / 2), Size(dw, dh))
+}
+
+/** Punto AF in frazioni dell'immagine *come la si vede* (già ruotata). */
+private fun afFraction(m: PhotoMeta?): Offset? {
+    val x = m?.focusX ?: return null
+    val y = m.focusY ?: return null
+    val w = m.width ?: return null
+    val h = m.height ?: return null
+    if (x > w || y > h) return null
+    val fx = x / w.toFloat()
+    val fy = y / h.toFloat()
+    return when (m.orientation) {
+        0, 1 -> Offset(fx, fy)
+        3 -> Offset(1 - fx, 1 - fy)
+        6 -> Offset(1 - fy, fx)
+        8 -> Offset(fy, 1 - fx)
+        else -> null
+    }
+}
+
+/** Maschere (bruciature, fuoco) e punto AF disegnati nel rettangolo [r] della foto, anche zoomata. */
 @Composable
-private fun ClippingOverlay(mask: ImageBitmap) {
-    Image(
-        mask, null, Modifier.fillMaxSize(),
-        contentScale = ContentScale.Fit, filterQuality = FilterQuality.None,
-    )
+private fun AnalysisOverlay(r: Rect, clip: ImageBitmap?, focus: ImageBitmap?, af: Offset?) {
+    if (r.isEmpty || (clip == null && focus == null && af == null)) return
+    Canvas(Modifier.fillMaxSize()) {
+        val dstOff = IntOffset(r.left.roundToInt(), r.top.roundToInt())
+        val dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt())
+        for (m in listOfNotNull(focus, clip)) {
+            drawImage(m, IntOffset.Zero, IntSize(m.width, m.height), dstOff, dstSize, filterQuality = FilterQuality.None)
+        }
+        if (af != null) {
+            val c = Offset(r.left + af.x * r.width, r.top + af.y * r.height)
+            val half = (minOf(r.width, r.height) * 0.04f).coerceIn(14.dp.toPx(), 60.dp.toPx())
+            val stroke = Stroke(width = 2.dp.toPx())
+            drawRect(Color.Black.copy(alpha = 0.5f), Offset(c.x - half, c.y - half), Size(half * 2, half * 2), style = Stroke(4.dp.toPx()))
+            drawRect(Accent, Offset(c.x - half, c.y - half), Size(half * 2, half * 2), style = stroke)
+        }
+    }
 }
 
 /** Istogramma RGB + luminanza, con le percentuali di luci bruciate / ombre chiuse. */

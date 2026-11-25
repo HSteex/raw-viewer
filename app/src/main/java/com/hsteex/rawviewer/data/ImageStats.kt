@@ -1,6 +1,7 @@
 package com.hsteex.rawviewer.data
 
 import android.graphics.Bitmap
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -57,6 +58,51 @@ class ImageStats(
             }
             val tot = max(1, n).toFloat()
             return ImageStats(r, g, bl, l, hi / tot, lo / tot)
+        }
+
+        const val MASK_FOCUS = 0xFF3DFF5A.toInt()
+
+        /**
+         * Focus peaking: evidenzia i bordi più netti (laplaciano della luminanza), cioè le zone a fuoco.
+         * Soglia adattiva: il ~3% di pixel più contrastati, ma mai sotto un minimo assoluto, così una foto
+         * tutta mossa resta quasi senza segni. Calcolato sull'anteprima: indica *dove* è il fuoco,
+         * per giudicare la nitidezza vera serve lo zoom al 100%.
+         */
+        fun focusMask(b: Bitmap): Bitmap {
+            val step = if (max(b.width, b.height) > 1200) 2 else 1
+            val w = b.width / step
+            val h = b.height / step
+            val lum = IntArray(w * h)
+            val row = IntArray(b.width)
+            for (y in 0 until h) {
+                b.getPixels(row, 0, b.width, 0, min(y * step, b.height - 1), b.width, 1)
+                for (x in 0 until w) {
+                    val c = row[x * step]
+                    lum[y * w + x] = (((c shr 16) and 0xFF) * 54 + ((c shr 8) and 0xFF) * 183 + (c and 0xFF) * 19) shr 8
+                }
+            }
+            val lap = IntArray(w * h)
+            val hist = IntArray(1021)
+            for (y in 1 until h - 1) {
+                for (x in 1 until w - 1) {
+                    val i = y * w + x
+                    val v = abs(4 * lum[i] - lum[i - 1] - lum[i + 1] - lum[i - w] - lum[i + w])
+                    lap[i] = v
+                    hist[v]++
+                }
+            }
+            val total = (w - 2).coerceAtLeast(1) * (h - 2).coerceAtLeast(1)
+            var acc = 0
+            var thr = 1020
+            while (thr > 0) {
+                acc += hist[thr]
+                if (acc >= total * 0.03) break
+                thr--
+            }
+            thr = max(thr, 48)
+            val out = IntArray(w * h)
+            for (i in lap.indices) if (lap[i] >= thr) out[i] = MASK_FOCUS
+            return Bitmap.createBitmap(out, w, h, Bitmap.Config.ARGB_8888)
         }
 
         /** Maschera trasparente (metà risoluzione): rosso dove è bruciato, blu dove è chiuso. */

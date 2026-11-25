@@ -140,6 +140,7 @@ object MetaParser {
         var w: Int? = null
         var h: Int? = null
         var film: String? = null
+        var focus: Pair<Int, Int>? = null
         if (exifPtr > 0) {
             for (e in t.entries(exifPtr)) {
                 when (e.tag) {
@@ -153,7 +154,7 @@ object MetaParser {
                     0xA434 -> lens = t.ascii(e)
                     0xA002 -> w = t.int(e).toInt().takeIf { it > 0 }
                     0xA003 -> h = t.int(e).toInt().takeIf { it > 0 }
-                    0x927C -> film = parseFujiFilm(t, e)
+                    0x927C -> parseFuji(t, e)?.let { film = it.film; focus = it.focus }
                 }
             }
         }
@@ -162,12 +163,15 @@ object MetaParser {
             make = make, model = model, lens = lens,
             exposure = exposure, fNumber = fNumber, iso = iso, focal = focal, bias = bias,
             width = w, height = h, orientation = orientation, film = film,
+            focusX = focus?.first, focusY = focus?.second,
         )
         return ExifResult(meta, thumbOff, thumbLen)
     }
 
-    /** MakerNote Fujifilm: simulazione pellicola (0x1401) e B/N-Acros (0x1003). */
-    private fun parseFujiFilm(t: Tiff, e: Entry): String? {
+    private class FujiInfo(val film: String?, val focus: Pair<Int, Int>?)
+
+    /** MakerNote Fujifilm: simulazione pellicola (0x1401), B/N-Acros (0x1003), punto AF (0x1031 FocusPixel). */
+    private fun parseFuji(t: Tiff, e: Entry): FujiInfo? {
         val mn = t.dataOffset(e)
         if (!t.valid(mn, 12)) return null
         val sig = String(t.b, t.start + mn, 8, Charsets.US_ASCII)
@@ -176,12 +180,25 @@ object MetaParser {
         val ifd = mt.u32(8).toInt()
         var filmMode: Int? = null
         var saturation: Int? = null
+        var focus: Pair<Int, Int>? = null
         for (x in mt.entries(ifd)) {
             when (x.tag) {
                 0x1401 -> filmMode = mt.int(x).toInt()
                 0x1003 -> saturation = mt.int(x).toInt()
+                0x1031 -> if (x.type == 3 && x.count >= 2) {
+                    val o = mt.dataOffset(x)
+                    if (mt.valid(o, 4)) {
+                        val fx = mt.u16(o)
+                        val fy = mt.u16(o + 2)
+                        if (fx > 0 && fy > 0) focus = fx to fy
+                    }
+                }
             }
         }
+        return FujiInfo(filmName(filmMode, saturation), focus)
+    }
+
+    private fun filmName(filmMode: Int?, saturation: Int?): String? {
         val bw = when (saturation) {
             0x300 -> "Monocromatico"
             0x301 -> "Monocromatico + R"

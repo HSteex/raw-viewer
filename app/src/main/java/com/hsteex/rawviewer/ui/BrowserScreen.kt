@@ -105,6 +105,14 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.draw.clip
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ModalBottomSheet
+import com.hsteex.rawviewer.data.Library
+import com.hsteex.rawviewer.data.OrientFilter
+import com.hsteex.rawviewer.data.PhotoMeta
 
 private class ImportRequest(val shots: List<Shot>, val title: String)
 
@@ -119,6 +127,8 @@ fun BrowserScreen(vm: MainViewModel) {
     val filter by vm.filter.collectAsStateWithLifecycle()
     val selection by vm.selection.collectAsStateWithLifecycle()
     val folders by vm.folders.collectAsStateWithLifecycle()
+    val metas by vm.metas.collectAsStateWithLifecycle()
+    var showAdvanced by remember { mutableStateOf(false) }
     val columns by vm.prefs.columns.collectAsStateWithLifecycle()
     val importFormat by vm.prefs.importFormat.collectAsStateWithLifecycle()
     val indexing by vm.indexing.collectAsStateWithLifecycle()
@@ -258,6 +268,7 @@ fun BrowserScreen(vm: MainViewModel) {
             FilterBar(
                 filter = filter, folders = folders,
                 onChange = { vm.filter.value = it },
+                onAdvanced = { showAdvanced = true },
             )
 
             if (items.isEmpty() && scan is ScanState.Done) {
@@ -319,6 +330,10 @@ fun BrowserScreen(vm: MainViewModel) {
                 }
             }
         }
+    }
+
+    if (showAdvanced) {
+        AdvancedFilterSheet(filter, metas.values, onChange = { vm.filter.value = it }, onDismiss = { showAdvanced = false })
     }
 
     importReq?.let { req ->
@@ -423,7 +438,12 @@ private fun SortMenu(current: Sort, onSort: (Sort) -> Unit) {
 }
 
 @Composable
-private fun FilterBar(filter: com.hsteex.rawviewer.data.Filter, folders: List<String>, onChange: (com.hsteex.rawviewer.data.Filter) -> Unit) {
+private fun FilterBar(
+    filter: com.hsteex.rawviewer.data.Filter,
+    folders: List<String>,
+    onChange: (com.hsteex.rawviewer.data.Filter) -> Unit,
+    onAdvanced: () -> Unit,
+) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -457,6 +477,73 @@ private fun FilterBar(filter: com.hsteex.rawviewer.data.Filter, folders: List<St
                 )
             }
         }
+        item {
+            val n = filter.advancedCount
+            ColorChip(if (n == 0) "⚙ Avanzati" else "⚙ Avanzati ($n)", n > 0, Accent, onAdvanced)
+        }
+    }
+}
+
+/** Filtri sui metadati, tenuti fuori dalla barra: simulazione, obiettivo, orientamento, ISO. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AdvancedFilterSheet(
+    filter: com.hsteex.rawviewer.data.Filter,
+    metas: Collection<PhotoMeta>,
+    onChange: (com.hsteex.rawviewer.data.Filter) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val films = remember(metas) { metas.map { it.film ?: Library.NO_FILM }.distinct().sorted() }
+    val lenses = remember(metas) { metas.map { Library.lensName(it) }.distinct().sorted() }
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Surface1) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Filtri avanzati", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                TextButton(enabled = filter.advancedCount > 0, onClick = { onChange(filter.clearAdvanced()) }) { Text("Azzera") }
+            }
+            if (films.size > 1 || filter.films.isNotEmpty()) {
+                SheetSection("Simulazione pellicola") {
+                    for (f in films) {
+                        ColorChip(f, f in filter.films, Accent) {
+                            onChange(filter.copy(films = if (f in filter.films) filter.films - f else filter.films + f))
+                        }
+                    }
+                }
+            }
+            if (lenses.size > 1 || filter.lenses.isNotEmpty()) {
+                SheetSection("Obiettivo") {
+                    for (l in lenses) {
+                        ColorChip(l, l in filter.lenses, Accent) {
+                            onChange(filter.copy(lenses = if (l in filter.lenses) filter.lenses - l else filter.lenses + l))
+                        }
+                    }
+                }
+            }
+            SheetSection("Orientamento") {
+                for (o in OrientFilter.entries) ColorChip(o.label, filter.orient == o, Accent) { onChange(filter.copy(orient = o)) }
+            }
+            SheetSection("ISO massimo") {
+                for (iso in listOf<Int?>(null, 400, 800, 1600, 3200, 6400)) {
+                    ColorChip(iso?.let { "≤ $it" } ?: "Qualsiasi", filter.isoMax == iso, Accent) { onChange(filter.copy(isoMax = iso)) }
+                }
+            }
+            Text(
+                "Valgono sugli scatti di cui sono già stati letti i metadati.",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SheetSection(title: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) { content() }
     }
 }
 

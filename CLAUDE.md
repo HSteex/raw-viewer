@@ -31,8 +31,13 @@ legge la SD con un **adattatore USB-C** e scrive in italiano: UI e messaggi in i
   (max 40 file / 700 MB) e telephoto la legge da file: niente letture SD durante lo zoom.
 - Diagnostica: impostazione "Mostra tempi di caricamento" (overlay nel visualizzatore).
 - Visualizzatore: istogramma (RGB + luminanza) e maschera bruciature (rosso ≥253, blu ≤2) da `data/ImageStats.kt`,
-  calcolati sull'anteprima in memoria (sempre il JPEG); la maschera è allineata solo a zoom 1. Comandi in basso su due
+  calcolati sull'anteprima in memoria (sempre il JPEG). Le maschere si disegnano nel `transformedContentBounds`, quindi
+  seguono lo zoom. Menu "Analisi": istogramma, bruciature, messa a fuoco (peaking = laplaciano sull'anteprima + riquadro
+  del punto AF Fuji, MakerNote 0x1031, DB v4) e zoom al 100% sul punto AF. Doppio tocco = 100% (maxZoom calcolato
+  dai pixel veri della foto). Comandi in basso su due
   righe (dati di scatto + JPEG/RAW, poi ✗ · stelle · ✓); Confronta e Condividi nel menu ⋮.
+- Filtri avanzati (chip "⚙ Avanzati" → bottom sheet): simulazione, obiettivo, orientamento, ISO massimo; escludono
+  gli scatti senza metadati letti.
 - La posizione della griglia (`LazyGridState`) vive nel ViewModel; al ritorno si porta sull'ultima foto vista.
 - Confronto: striscia di foto in basso (l'elenco da cui si arriva, `Screen.Compare.keys`); un tocco mette la foto nel
   riquadro selezionato. Zoom collegato (`linkZoom`): stesso ingrandimento relativo e stesso punto in frazioni dell'immagine.

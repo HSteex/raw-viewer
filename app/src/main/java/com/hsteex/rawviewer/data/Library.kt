@@ -12,6 +12,8 @@ enum class Sort(val label: String) {
     TIME_ASC("Data ↑ (vecchie prima)"), TIME_DESC("Data ↓ (recenti prima)"), NAME_ASC("Nome A→Z"), NAME_DESC("Nome Z→A")
 }
 
+enum class OrientFilter(val label: String) { ALL("Tutte"), LANDSCAPE("Orizzontali"), PORTRAIT("Verticali") }
+
 data class Filter(
     val flag: FlagFilter = FlagFilter.ALL,
     val minStars: Int = 0,
@@ -19,9 +21,21 @@ data class Filter(
     val folder: String? = null,
     val sort: Sort = Sort.TIME_ASC,
     val groupBursts: Boolean = false,
+    // filtri avanzati (sui metadati): insiemi vuoti = nessun vincolo
+    val films: Set<String> = emptySet(),
+    val lenses: Set<String> = emptySet(),
+    val orient: OrientFilter = OrientFilter.ALL,
+    val isoMax: Int? = null,
 ) {
+    /** Quanti filtri avanzati sono attivi. */
+    val advancedCount: Int
+        get() = (if (films.isNotEmpty()) 1 else 0) + (if (lenses.isNotEmpty()) 1 else 0) +
+            (if (orient != OrientFilter.ALL) 1 else 0) + (if (isoMax != null) 1 else 0)
+
     val isDefault: Boolean
-        get() = flag == FlagFilter.ALL && minStars == 0 && type == TypeFilter.ALL && folder == null
+        get() = flag == FlagFilter.ALL && minStars == 0 && type == TypeFilter.ALL && folder == null && advancedCount == 0
+
+    fun clearAdvanced() = copy(films = emptySet(), lenses = emptySet(), orient = OrientFilter.ALL, isoMax = null)
 }
 
 sealed interface GridItem {
@@ -86,7 +100,8 @@ object Library {
                 TypeFilter.RAW_ONLY -> s.jpeg == null && s.raw != null
                 TypeFilter.HAS_RAW -> s.raw != null
             }
-            flagOk && typeOk && r.stars >= f.minStars && (f.folder == null || s.relDir == f.folder)
+            flagOk && typeOk && r.stars >= f.minStars && (f.folder == null || s.relDir == f.folder) &&
+                (f.advancedCount == 0 || advancedOk(metas[s.key], f))
         }
         val off = mtimeOffset(shots, metas)
         return when (f.sort) {
@@ -98,6 +113,27 @@ object Library {
             Sort.NAME_DESC -> out.sortedWith(compareByDescending<Shot> { it.relDir }.thenByDescending { it.baseName })
         }
     }
+
+    private fun advancedOk(m: PhotoMeta?, f: Filter): Boolean {
+        if (m == null) return false // metadati non ancora letti: si escludono finché non arrivano
+        if (f.films.isNotEmpty() && (m.film ?: NO_FILM) !in f.films) return false
+        if (f.lenses.isNotEmpty() && lensName(m) !in f.lenses) return false
+        if (f.isoMax != null && (m.iso ?: Int.MAX_VALUE) > f.isoMax) return false
+        if (f.orient != OrientFilter.ALL) {
+            val w = m.width ?: return false
+            val h = m.height ?: return false
+            val rotated = m.orientation in 5..8
+            val landscape = if (rotated) h >= w else w >= h
+            if ((f.orient == OrientFilter.LANDSCAPE) != landscape) return false
+        }
+        return true
+    }
+
+    const val NO_FILM = "Nessuna / non Fuji"
+
+    /** Obiettivo leggibile: nome EXIF, altrimenti la focale (compatte e obiettivi senza contatti). */
+    fun lensName(m: PhotoMeta): String =
+        m.lens?.trim()?.ifEmpty { null } ?: (m.focal?.let { "%.0f mm".format(it) } ?: "Sconosciuto")
 
     /**
      * Raffiche: scatti consecutivi (nella stessa cartella) distanti al massimo [gapMs].

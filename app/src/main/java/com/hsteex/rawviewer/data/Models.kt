@@ -71,6 +71,9 @@ data class PhotoMeta(
     val height: Int? = null,
     val orientation: Int = 1,
     val film: String? = null,
+    /** Punto di messa a fuoco (MakerNote Fuji, pixel dell'immagine non ruotata). */
+    val focusX: Int? = null,
+    val focusY: Int? = null,
 ) {
     companion object {
         val EMPTY = PhotoMeta()

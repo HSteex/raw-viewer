@@ -8,7 +8,7 @@ import android.database.sqlite.SQLiteOpenHelper
 import android.net.Uri
 
 /** Database interno: voti, cache dei metadati e cartelle recenti. */
-class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 3) {
+class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 4) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -19,7 +19,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 3) 
             "CREATE TABLE meta(doc TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, date INTEGER, " +
                 "make TEXT, model TEXT, lens TEXT, exposure TEXT, fnum REAL, iso INTEGER, focal REAL, " +
                 "bias REAL, w INTEGER, h INTEGER, orient INTEGER, film TEXT, thumbOff INTEGER, " +
-                "thumbLen INTEGER, prevOff INTEGER, prevLen INTEGER, jpgOff INTEGER, jpgLen INTEGER)"
+                "thumbLen INTEGER, prevOff INTEGER, prevLen INTEGER, jpgOff INTEGER, jpgLen INTEGER, fx INTEGER, fy INTEGER)"
         )
         db.execSQL("CREATE TABLE roots(uri TEXT PRIMARY KEY, name TEXT, last INTEGER)")
     }
@@ -28,6 +28,12 @@ class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 3) 
         if (oldVersion < 2) db.execSQL("ALTER TABLE ratings ADD COLUMN downloaded INTEGER NOT NULL DEFAULT 0")
         // v3: il parser MPF scartava male le gain map HDR → si rilegge tutto (è solo una cache)
         if (oldVersion < 3) db.execSQL("DELETE FROM meta")
+        // v4: punto AF Fuji
+        if (oldVersion < 4) {
+            db.execSQL("ALTER TABLE meta ADD COLUMN fx INTEGER")
+            db.execSQL("ALTER TABLE meta ADD COLUMN fy INTEGER")
+            db.execSQL("DELETE FROM meta")
+        }
     }
 
     // ---------- ratings ----------
@@ -121,6 +127,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 3) 
                     put("bias", m.bias); put("w", m.width); put("h", m.height); put("orient", m.orientation)
                     put("film", m.film); put("thumbOff", i.thumbOff); put("thumbLen", i.thumbLen)
                     put("prevOff", i.prevOff); put("prevLen", i.prevLen); put("jpgOff", i.jpgOff); put("jpgLen", i.jpgLen)
+                    put("fx", m.focusX); put("fy", m.focusY)
                 }
                 db.insertWithOnConflict("meta", null, v, SQLiteDatabase.CONFLICT_REPLACE)
             }
@@ -143,6 +150,7 @@ class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 3) 
             exposure = str("exposure"), fNumber = dbl("fnum"), iso = intOrNull("iso"), focal = dbl("focal"),
             bias = dbl("bias"), width = intOrNull("w"), height = intOrNull("h"),
             orientation = intOrNull("orient") ?: 1, film = str("film"),
+            focusX = intOrNull("fx"), focusY = intOrNull("fy"),
         ),
         thumbOff = long("thumbOff"), thumbLen = long("thumbLen").toInt(),
         prevOff = long("prevOff"), prevLen = long("prevLen").toInt(),
