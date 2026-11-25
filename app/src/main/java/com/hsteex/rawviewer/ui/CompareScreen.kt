@@ -70,6 +70,9 @@ import me.saket.telephoto.zoomable.ZoomSpec
 import me.saket.telephoto.zoomable.ZoomableState
 import me.saket.telephoto.zoomable.rememberZoomableState
 import kotlin.math.abs
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
 
 /**
  * Due scatti uno sopra l'altro (affiancati in orizzontale), con zoom collegato e una striscia
@@ -92,6 +95,7 @@ fun CompareScreen(vm: MainViewModel, screen: Screen.Compare) {
         if (linked) linkZoom(zoomA, zoomB) { Size(paneSize.width.toFloat(), paneSize.height.toFloat()) }
     }
 
+    val haze = remember { HazeState() }
     Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding()) {
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             val landscape = maxWidth > maxHeight
@@ -105,11 +109,15 @@ fun CompareScreen(vm: MainViewModel, screen: Screen.Compare) {
                 }
             }
             if (landscape) {
-                Row(Modifier.fillMaxSize()) { panes(Modifier.weight(1f).fillMaxSize(), Modifier.weight(1f).fillMaxSize()) }
+                Row(Modifier.fillMaxSize().hazeSource(haze)) { panes(Modifier.weight(1f).fillMaxSize(), Modifier.weight(1f).fillMaxSize()) }
             } else {
-                Column(Modifier.fillMaxSize()) { panes(Modifier.weight(1f).fillMaxWidth(), Modifier.weight(1f).fillMaxWidth()) }
+                Column(Modifier.fillMaxSize().hazeSource(haze)) { panes(Modifier.weight(1f).fillMaxWidth(), Modifier.weight(1f).fillMaxWidth()) }
             }
-            Row(Modifier.align(Alignment.TopStart).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            // comandi in una pillola di vetro
+            Row(
+                Modifier.align(Alignment.TopStart).padding(10.dp).clip(CircleShape).hazeEffect(haze, frostedDark()).padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 RoundButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Indietro", tint = Color.White) }
                 RoundButton(onClick = { linked = !linked }) {
                     Icon(
@@ -129,7 +137,7 @@ fun CompareScreen(vm: MainViewModel, screen: Screen.Compare) {
 
 @Composable
 private fun RoundButton(onClick: () -> Unit, content: @Composable () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.background(Color.Black.copy(alpha = 0.5f), CircleShape)) { content() }
+    IconButton(onClick = onClick) { content() }
 }
 
 @Composable
@@ -202,9 +210,9 @@ private fun Filmstrip(vm: MainViewModel, keys: List<String>, keyA: String, keyB:
             Box(
                 Modifier
                     .size(64.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(Surface2)
-                    .then(if (mark != null) Modifier.border(2.dp, Accent, RoundedCornerShape(6.dp)) else Modifier)
+                    .then(if (mark != null) Modifier.border(2.dp, Accent, RoundedCornerShape(12.dp)) else Modifier)
                     .clickable { onPick(k) },
             ) {
                 rememberGridThumb(vm.repo, s)?.let { bmp ->

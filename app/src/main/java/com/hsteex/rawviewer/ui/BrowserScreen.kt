@@ -113,6 +113,17 @@ import androidx.compose.material3.ModalBottomSheet
 import com.hsteex.rawviewer.data.Library
 import com.hsteex.rawviewer.data.OrientFilter
 import com.hsteex.rawviewer.data.PhotoMeta
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.runtime.mutableIntStateOf
 
 private class ImportRequest(val shots: List<Shot>, val title: String)
 
@@ -164,127 +175,37 @@ fun BrowserScreen(vm: MainViewModel) {
         runCatching { context.startActivity(i) }
     }
 
+    // La griglia scorre sotto un'intestazione di vetro opaco (barra, stato, filtri) e sotto la barra di selezione.
+    val haze = remember { HazeState() }
+    var headerPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val headerDp = with(density) { headerPx.toDp() }
+    val glass = frosted()
+
     Scaffold(
-        topBar = {
-            if (selecting) {
-                TopAppBar(
-                    title = { Text("${selection.size} selezionati") },
-                    navigationIcon = { IconButton(onClick = { vm.clearSelection() }) { Icon(Icons.Filled.Close, "Annulla selezione") } },
-                    actions = {
-                        IconButton(onClick = { vm.selectAllFiltered() }) { Icon(Icons.Filled.SelectAll, "Seleziona tutti i filtrati") }
-                        IconButton(onClick = { share(vm.selectedShots()) }) { Icon(Icons.Filled.Share, "Condividi") }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Surface2),
-                )
-            } else {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text(root?.name ?: "", maxLines = 1)
-                            Text(
-                                "${allShots.size} scatti · ✓ $picked · ✗ $rejected" +
-                                    if (!filter.isDefault) " · filtrati ${filtered.size}" else "",
-                                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    },
-                    navigationIcon = { IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Indietro") } },
-                    actions = {
-                        IconButton(onClick = { vm.filter.value = filter.copy(groupBursts = !filter.groupBursts) }) {
-                            Icon(
-                                Icons.Filled.BurstMode, "Raggruppa raffiche",
-                                tint = if (filter.groupBursts) Accent else MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-                        SortMenu(filter.sort) { vm.filter.value = filter.copy(sort = it) }
-                        var more by remember { mutableStateOf(false) }
-                        IconButton(onClick = { more = true }) { Icon(Icons.Filled.MoreVert, "Altro") }
-                        DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Seleziona tutti i filtrati (${filtered.size})") },
-                                leadingIcon = { Icon(Icons.Filled.SelectAll, null) },
-                                onClick = { more = false; vm.selectAllFiltered() },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Rileggi la cartella") },
-                                leadingIcon = { Icon(Icons.Filled.Refresh, null) },
-                                onClick = { more = false; vm.startScan() },
-                            )
-                        }
-                    },
-                )
-            }
-        },
-        bottomBar = {
-            if (selecting) {
-                SelectionBar(
-                    count = selection.size,
-                    onPick = { vm.setFlag(selection, Flag.PICK) },
-                    onReject = { vm.setFlag(selection, Flag.REJECT) },
-                    onClearFlag = { vm.setFlag(selection, Flag.NONE) },
-                    onStars = { vm.setStars(selection, it) },
-                    onCompare = {
-                        val s = vm.selectedShots()
-                        if (s.size == 2) vm.openCompare(s[0].key, s[1].key, filtered.map { it.key })
-                    },
-                    onDownload = { importReq = ImportRequest(vm.selectedShots(), "Scarica selezionati") },
-                )
-            }
-        },
+        contentWindowInsets = WindowInsets(0),
         floatingActionButton = {
             if (!selecting && picked > 0) {
                 ExtendedFloatingActionButton(
                     onClick = { importReq = ImportRequest(vm.pickedShots(), "Scarica le foto ✓") },
                     icon = { Icon(Icons.Filled.Download, null) },
-                    text = { Text("Scarica $picked") },
-                    containerColor = PickGreen,
-                    contentColor = Color.Black,
+                    text = { Text("Scarica $picked", fontWeight = FontWeight.SemiBold) },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.navigationBarsPadding(),
                 )
             }
         },
-    ) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad)) {
-            // stato scansione / indicizzazione
-            when (val s = scan) {
-                is ScanState.Scanning -> {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
-                    StatusText("Lettura della scheda… ${s.files} file")
-                }
-                is ScanState.Error -> StatusText("Errore: ${s.message}", color = RejectRed)
-                is ScanState.Done -> {
-                    val idx = indexing
-                    if (idx != null) {
-                        LinearProgressIndicator(
-                            progress = { if (idx.second == 0) 0f else idx.first.toFloat() / idx.second },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        StatusText("${s.shots} scatti in %.1f s · metadati ${idx.first}/${idx.second}".format(s.ms / 1000.0))
-                    }
-                }
-                ScanState.Idle -> {}
-            }
-            ImportStatus(work, dismissedWork, onCancel = { vm.cancelImport() }, onDismiss = { vm.dismissImport(it) })
-
-            FilterBar(
-                filter = filter, folders = folders,
-                onChange = { vm.filter.value = it },
-                onAdvanced = { showAdvanced = true },
-            )
-
-            if (items.isEmpty() && scan is ScanState.Done) {
-                CenterBox(Modifier.fillMaxSize()) {
-                    Text(
-                        if (allShots.isEmpty()) "Nessun JPEG o RAW in questa cartella" else "Nessuno scatto con questi filtri",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
+    ) { _ ->
+        Box(Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
                 state = gridState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 3.dp, end = 3.dp, top = 3.dp, bottom = 96.dp),
+                modifier = Modifier.fillMaxSize().hazeSource(haze),
+                contentPadding = PaddingValues(
+                    start = 3.dp, end = 3.dp, top = headerDp + 3.dp,
+                    bottom = 104.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+                ),
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
@@ -328,6 +249,118 @@ fun BrowserScreen(vm: MainViewModel) {
                         }
                     }
                 }
+            }
+
+            if (items.isEmpty() && scan is ScanState.Done) {
+                CenterBox(Modifier.fillMaxSize().padding(top = headerDp)) {
+                    Text(
+                        if (allShots.isEmpty()) "Nessun JPEG o RAW in questa cartella" else "Nessuno scatto con questi filtri",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .onSizeChanged { headerPx = it.height }
+                    .hazeEffect(haze, glass)
+                    .drawBehind {
+                        drawLine(Color.White.copy(alpha = 0.06f), Offset(0f, size.height), Offset(size.width, size.height), 1f)
+                    }
+                    .padding(bottom = 8.dp),
+            ) {
+                if (selecting) {
+                    TopAppBar(
+                        title = { Text("${selection.size} selezionati") },
+                        navigationIcon = { IconButton(onClick = { vm.clearSelection() }) { Icon(Icons.Filled.Close, "Annulla selezione") } },
+                        actions = {
+                            IconButton(onClick = { vm.selectAllFiltered() }) { Icon(Icons.Filled.SelectAll, "Seleziona tutti i filtrati") }
+                            IconButton(onClick = { share(vm.selectedShots()) }) { Icon(Icons.Filled.Share, "Condividi") }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent),
+                    )
+                } else {
+                    TopAppBar(
+                        title = {
+                            Column {
+                                Text(root?.name ?: "", maxLines = 1)
+                                Text(
+                                    "${allShots.size} scatti · ✓ $picked · ✗ $rejected" +
+                                        if (!filter.isDefault) " · filtrati ${filtered.size}" else "",
+                                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        },
+                        navigationIcon = { IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Indietro") } },
+                        actions = {
+                            IconButton(onClick = { vm.filter.value = filter.copy(groupBursts = !filter.groupBursts) }) {
+                                Icon(
+                                    Icons.Filled.BurstMode, "Raggruppa raffiche",
+                                    tint = if (filter.groupBursts) Accent else MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                            SortMenu(filter.sort) { vm.filter.value = filter.copy(sort = it) }
+                            var more by remember { mutableStateOf(false) }
+                            IconButton(onClick = { more = true }) { Icon(Icons.Filled.MoreVert, "Altro") }
+                            DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Seleziona tutti i filtrati (${filtered.size})") },
+                                    leadingIcon = { Icon(Icons.Filled.SelectAll, null) },
+                                    onClick = { more = false; vm.selectAllFiltered() },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Rileggi la cartella") },
+                                    leadingIcon = { Icon(Icons.Filled.Refresh, null) },
+                                    onClick = { more = false; vm.startScan() },
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, scrolledContainerColor = Color.Transparent),
+                    )
+                }
+                // stato scansione / indicizzazione
+                when (val s = scan) {
+                    is ScanState.Scanning -> {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        StatusText("Lettura della scheda… ${s.files} file")
+                    }
+                    is ScanState.Error -> StatusText("Errore: ${s.message}", color = RejectRed)
+                    is ScanState.Done -> {
+                        val idx = indexing
+                        if (idx != null) {
+                            LinearProgressIndicator(
+                                progress = { if (idx.second == 0) 0f else idx.first.toFloat() / idx.second },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            StatusText("${s.shots} scatti in %.1f s · metadati ${idx.first}/${idx.second}".format(s.ms / 1000.0))
+                        }
+                    }
+                    ScanState.Idle -> {}
+                }
+
+                ImportStatus(work, dismissedWork, onCancel = { vm.cancelImport() }, onDismiss = { vm.dismissImport(it) })
+                FilterBar(
+                    filter = filter, folders = folders,
+                    onChange = { vm.filter.value = it },
+                    onAdvanced = { showAdvanced = true },
+                )
+            }
+
+            if (selecting) {
+                SelectionBar(
+                    count = selection.size,
+                    onPick = { vm.setFlag(selection, Flag.PICK) },
+                    onReject = { vm.setFlag(selection, Flag.REJECT) },
+                    onClearFlag = { vm.setFlag(selection, Flag.NONE) },
+                    onStars = { vm.setStars(selection, it) },
+                    onCompare = {
+                        val s = vm.selectedShots()
+                        if (s.size == 2) vm.openCompare(s[0].key, s[1].key, filtered.map { it.key })
+                    },
+                    onDownload = { importReq = ImportRequest(vm.selectedShots(), "Scarica selezionati") },
+                    modifier = Modifier.align(Alignment.BottomCenter).hazeEffect(haze, glass),
+                )
             }
         }
     }
@@ -606,7 +639,7 @@ private fun ShotCell(
     Box(
         Modifier
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(Surface1)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
@@ -644,7 +677,7 @@ private fun ShotCell(
             Badge("▣ $burstCount", Modifier.align(Alignment.BottomEnd).padding(4.dp), color = Accent.copy(alpha = 0.9f))
         }
         if (selected) {
-            Box(Modifier.fillMaxSize().border(3.dp, Accent, RoundedCornerShape(6.dp)).background(Accent.copy(alpha = 0.18f)))
+            Box(Modifier.fillMaxSize().border(3.dp, Accent, RoundedCornerShape(12.dp)).background(Accent.copy(alpha = 0.18f)))
             Icon(
                 Icons.Filled.CheckCircle, null, tint = Accent,
                 modifier = Modifier.align(Alignment.Center).size(32.dp).background(Color.Black.copy(alpha = 0.4f), CircleShape),
@@ -662,8 +695,9 @@ private fun SelectionBar(
     onStars: (Int) -> Unit,
     onCompare: () -> Unit,
     onDownload: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    BottomAppBar(containerColor = Surface2) {
+    BottomAppBar(containerColor = Color.Transparent, modifier = modifier) {
         IconButton(onClick = onReject) { Icon(Icons.Filled.Close, "Scarta", tint = RejectRed) }
         IconButton(onClick = onPick) { Icon(Icons.Filled.Check, "Scarica", tint = PickGreen) }
         var stars by remember { mutableStateOf(false) }

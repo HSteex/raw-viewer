@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -88,7 +89,7 @@ fun HomeScreen(vm: MainViewModel) {
         LazyColumn(
             Modifier.fillMaxSize().padding(pad),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             item { Header() }
             item { OpenCard(onClick = { picker.launch(null) }) }
@@ -99,12 +100,17 @@ fun HomeScreen(vm: MainViewModel) {
                 item {
                     Text(
                         "Aperte di recente",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 4.dp, top = 12.dp),
                     )
                 }
-                items(roots, key = { it.uri.toString() }) { r ->
-                    RecentRow(r, onOpen = { vm.openRoot(r) }, onRemove = { vm.removeRoot(r) })
+                // lista raggruppata: un blocco unico, angoli grandi solo agli estremi
+                itemsIndexed(roots, key = { _, r -> r.uri.toString() }) { i, r ->
+                    RecentRow(
+                        r, groupShape(i, roots.size),
+                        onOpen = { vm.openRoot(r) }, onRemove = { vm.removeRoot(r) },
+                    )
                 }
             }
         }
@@ -113,47 +119,42 @@ fun HomeScreen(vm: MainViewModel) {
 
 @Composable
 private fun Header() {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
-        Box(
-            Modifier.size(56.dp).clip(RoundedCornerShape(16.dp)).background(Surface2),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painterResource(R.drawable.ic_launcher_foreground), null,
-                tint = Accent, modifier = Modifier.size(64.dp),
-            )
-        }
-        Spacer(Modifier.width(14.dp))
-        Column {
-            Text("RAW Viewer", fontSize = 26.sp, fontWeight = FontWeight.Bold)
-            Text("Sfoglia, valuta e scarica dalla SD", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+    Column(Modifier.padding(start = 4.dp, top = 8.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("RAW Viewer", fontSize = 40.sp, lineHeight = 46.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp)
+        Text("Sfoglia, valuta e scarica dalla SD", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
     }
+}
+
+/** Forma di un elemento in una lista raggruppata (stile impostazioni di Android). */
+fun groupShape(index: Int, count: Int): RoundedCornerShape = when {
+    count <= 1 -> RoundedCornerShape(24.dp)
+    index == 0 -> RoundedCornerShape(24.dp, 24.dp, 6.dp, 6.dp)
+    index == count - 1 -> RoundedCornerShape(6.dp, 6.dp, 24.dp, 24.dp)
+    else -> RoundedCornerShape(6.dp)
 }
 
 @Composable
 private fun OpenCard(onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(Brush.linearGradient(listOf(Color(0xFF3A2A10), Color(0xFF221A0E))))
+            .padding(bottom = 16.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .background(cs.primaryContainer)
             .clickable(onClick = onClick)
-            .padding(20.dp),
+            .padding(horizontal = 20.dp, vertical = 22.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(52.dp).clip(CircleShape).background(Accent), contentAlignment = Alignment.Center) {
-            Icon(Icons.Filled.SdCard, null, tint = Color.Black, modifier = Modifier.size(28.dp))
+        Box(Modifier.size(56.dp).clip(RoundedCornerShape(18.dp)).background(cs.primary), contentAlignment = Alignment.Center) {
+            Icon(Icons.Filled.SdCard, null, tint = cs.onPrimary, modifier = Modifier.size(28.dp))
         }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
-            Text("Apri scheda SD", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            Text(
-                "Scegli DCIM o una sua cartella",
-                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp,
-            )
+            Text("Apri scheda SD", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = cs.onPrimaryContainer)
+            Text("Scegli DCIM o una sua cartella", color = cs.onPrimaryContainer.copy(alpha = 0.8f), fontSize = 14.sp)
         }
-        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = Accent)
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = cs.onPrimaryContainer)
     }
 }
 
@@ -162,10 +163,9 @@ private fun HowItWorks() {
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(top = 8.dp)
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(28.dp))
             .background(Surface1)
-            .padding(20.dp),
+            .padding(22.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Text("Come funziona", style = MaterialTheme.typography.titleMedium)
@@ -179,8 +179,8 @@ private fun HowItWorks() {
 @Composable
 private fun Step(n: Int, title: String, text: String) {
     Row {
-        Box(Modifier.size(26.dp).clip(CircleShape).background(Surface2), contentAlignment = Alignment.Center) {
-            Text("$n", color = Accent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Box(Modifier.size(28.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
+            Text("$n", color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
         Spacer(Modifier.width(12.dp))
         Column {
@@ -191,22 +191,25 @@ private fun Step(n: Int, title: String, text: String) {
 }
 
 @Composable
-private fun RecentRow(r: RootEntry, onOpen: () -> Unit, onRemove: () -> Unit) {
+private fun RecentRow(r: RootEntry, shape: RoundedCornerShape, onOpen: () -> Unit, onRemove: () -> Unit) {
     val (place, path) = describeTree(r.uri)
     val internal = place == "Memoria interna"
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(shape)
             .background(Surface1)
             .clickable(onClick = onOpen)
-            .padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+            .padding(start = 16.dp, top = 14.dp, bottom = 14.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(Surface2), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.secondaryContainer),
+            contentAlignment = Alignment.Center,
+        ) {
             Icon(
                 if (internal) Icons.Filled.PhoneAndroid else Icons.Filled.Folder, null,
-                tint = Accent, modifier = Modifier.size(22.dp),
+                tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(22.dp),
             )
         }
         Spacer(Modifier.width(14.dp))

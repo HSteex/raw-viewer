@@ -54,6 +54,9 @@ import com.hsteex.rawviewer.data.RawDecoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.os.Build
+import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 
 @Composable
 fun SettingsScreen(vm: MainViewModel) {
@@ -64,6 +67,7 @@ fun SettingsScreen(vm: MainViewModel) {
     val burstGap by p.burstGapMs.collectAsStateWithLifecycle()
     val format by p.importFormat.collectAsStateWithLifecycle()
     val timings by p.showTimings.collectAsStateWithLifecycle()
+    val dynamic by p.dynamicColor.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var cacheSize by remember { mutableLongStateOf(-1L) }
@@ -72,16 +76,34 @@ fun SettingsScreen(vm: MainViewModel) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Impostazioni") },
+            LargeTopAppBar(
+                title = { Text("Impostazioni", fontWeight = FontWeight.SemiBold) },
                 navigationIcon = { IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Indietro") } },
+                colors = TopAppBarDefaults.largeTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background,
+                ),
             )
         },
     ) { pad ->
         Column(
             Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
         ) {
+            Section("Aspetto") {
+                if (Build.VERSION.SDK_INT >= 31) {
+                    SwitchRow(
+                        "Colori dallo sfondo",
+                        "Material You: i colori dell'app seguono il tuo sfondo. Spento: ambra.",
+                        dynamic, p::setDynamicColor,
+                    )
+                } else {
+                    LabeledRow("Colori dallo sfondo", "Serve Android 12 o successivo")
+                }
+                Divider()
+                LabeledRow("Tema", "Sempre scuro: le foto si giudicano meglio su un fondo neutro")
+            }
+
             Section("Valutazione") {
                 SwitchRow(
                     "Avanza dopo il voto",
@@ -142,7 +164,7 @@ fun SettingsScreen(vm: MainViewModel) {
 
             Section("Archiviazione") {
                 Row(
-                    Modifier.fillMaxWidth().clickable { confirmClear = true }.padding(16.dp),
+                    Modifier.fillMaxWidth().background(Surface1).clickable { confirmClear = true }.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
@@ -190,20 +212,21 @@ fun SettingsScreen(vm: MainViewModel) {
 private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column {
         Text(
-            title.uppercase(), color = Accent, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
+            title, color = Accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
         )
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Surface1), content = content)
+        // lista raggruppata: ogni riga è una piastrella, separate da una fessura; angoli grandi solo fuori
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)), content = content)
     }
 }
 
 @Composable
-private fun Divider() = HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+private fun Divider() = Spacer(Modifier.fillMaxWidth().height(3.dp))
 
 @Composable
 private fun SwitchRow(title: String, subtitle: String, value: Boolean, onChange: (Boolean) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable { onChange(!value) }.padding(16.dp),
+        Modifier.fillMaxWidth().background(Surface1).clickable { onChange(!value) }.padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
@@ -216,7 +239,7 @@ private fun SwitchRow(title: String, subtitle: String, value: Boolean, onChange:
 
 @Composable
 private fun LabeledRow(title: String, subtitle: String) {
-    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 10.dp)) {
+    Column(Modifier.fillMaxWidth().background(Surface1).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp)) {
         Text(title, fontWeight = FontWeight.Medium)
         Text(subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -224,7 +247,7 @@ private fun LabeledRow(title: String, subtitle: String) {
 
 @Composable
 private fun <T> Segmented(options: List<T>, selected: T, label: (T) -> String, onSelect: (T) -> Unit) {
-    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().background(Surface1).padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
         options.forEachIndexed { i, o ->
             SegmentedButton(
                 selected = o == selected,

@@ -61,6 +61,19 @@ legge la SD con un **adattatore USB-C** e scrive in italiano: UI e messaggi in i
 - `ui/`: Home, Settings, Browser (griglia + filtri + selezione), Viewer (pager, zoom, stelle, ✓/✗, swipe,
   toggle JPEG/RAW), Compare.
 
+## Design (redesign Material You)
+
+- `ui/Theme.kt`: colori dinamici dallo sfondo (Android 12+, impostazione "Colori dallo sfondo", default sì) con
+  ripiego sull'ambra; fondo quasi nero fisso. `Accent`/`Surface1`/`Surface2` sono getter @Composable sul tema:
+  usarli solo dentro composable (in un DrawScope copiarli prima in una val). Colori con significato fissi:
+  `PickGreen`, `RejectRed`, `StarYellow`, `DownloadedBlue`.
+- Vetro opaco con Haze 1.2.2 (`hazeSource` sul contenuto, `hazeEffect` sulle barre): `frosted()` per griglia
+  (intestazione + barra di selezione), `frostedDark()` (tinta nera neutra) sopra le foto: barre del visualizzatore,
+  dock di voto, pillole del confronto. Mai un `hazeEffect` dentro il proprio `hazeSource`.
+- Visualizzatore: in basso pillole (JPEG/RAW, dati di scatto) + `RatingDock` (capsula ✗ · stelle · ✓, bordo che si
+  accende col voto). Info scatto nel menu ⋮. Mockup di riferimento: artifact "RAW Viewer Redesign".
+- Home e Impostazioni: liste raggruppate (`groupShape` in HomeScreen.kt; in Impostazioni piastrelle con fessura da 3 dp).
+
 ## Decisioni prese con l'utente
 
 - **Mai cancellare file dalla SD** (per ora non vuole nemmeno l'opzione).

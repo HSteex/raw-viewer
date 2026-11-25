@@ -117,6 +117,17 @@ import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.mutableIntStateOf
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.MaterialTheme
 
 @Composable
 fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
@@ -183,12 +194,15 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
         if (before != n) advance()
     }
 
+    // le barre sono vetro scuro: sfocano la foto che passa sotto senza cambiarne i colori
+    val haze = remember { HazeState() }
+    val glass = frostedDark()
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         HorizontalPager(
             state = pager,
             key = { keys[it] },
             beyondViewportPageCount = 1,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().hazeSource(haze),
         ) { page ->
             val s = shotMap[keys[page]]
             if (s != null) {
@@ -229,7 +243,7 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent)))
+                    .hazeEffect(haze, glass)
                     .statusBarsPadding()
                     .padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -260,11 +274,15 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
                         )
                     }
                 }
-                IconButton(onClick = { showInfo = true }) { Icon(Icons.Filled.Info, "Info", tint = Color.White) }
                 Box {
                     var more by remember { mutableStateOf(false) }
                     IconButton(onClick = { more = true }) { Icon(Icons.Filled.MoreVert, "Altro", tint = Color.White) }
                     DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Informazioni scatto") },
+                            leadingIcon = { Icon(Icons.Filled.Info, null) },
+                            onClick = { more = false; showInfo = true },
+                        )
                         if (pager.currentPage < keys.lastIndex) {
                             DropdownMenuItem(
                                 text = { Text("Confronta con la successiva") },
@@ -285,54 +303,52 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
             }
         }
 
-        // comandi in due righe: dati di scatto (+ JPEG/RAW) e poi ✗ · stelle · ✓
+        // in basso: una riga di pillole (JPEG/RAW, dati di scatto) e il dock di voto ✗ · stelle · ✓
         AnimatedVisibility(chrome, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
             Column(
-                Modifier
-                    .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))))
-                    .navigationBarsPadding()
-                    .padding(start = 16.dp, end = 16.dp, top = 28.dp, bottom = 10.dp),
+                Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val line = metas[currentKey]?.let { m ->
-                        listOfNotNull(m.exposure, m.fNumber?.let { "f/%.1f".format(it) }, m.iso?.let { "ISO $it" }, m.film)
-                    }.orEmpty()
-                    Text(
-                        line.joinToString("  ·  "), color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-                    )
+                Row(
+                    Modifier.padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     if (current != null && vm.repo.canDevelopRaw(current)) {
-                        Spacer(Modifier.width(8.dp))
-                        Row(Modifier.clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.12f))) {
+                        Row(Modifier.clip(CircleShape).hazeEffect(haze, glass).padding(3.dp)) {
                             for ((label, raw) in listOf((if (current.jpeg != null) "JPEG" else "Anteprima") to false, "RAW" to true)) {
                                 val sel = showRaw == raw
                                 Text(
                                     label,
-                                    color = if (sel) Color.Black else Color.White,
+                                    color = if (sel) MaterialTheme.colorScheme.onPrimary else Color.White,
                                     fontWeight = FontWeight.SemiBold, fontSize = 12.sp,
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(14.dp))
+                                        .clip(CircleShape)
                                         .background(if (sel) Accent else Color.Transparent)
                                         .clickable { showRaw = raw }
-                                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
                                 )
                             }
                         }
                     }
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    FlagCircle(Icons.Filled.Close, "Scarta", rating.flag == Flag.REJECT, RejectRed) {
-                        currentKey?.let { flag(it, Flag.REJECT) }
-                    }
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        StarsRow(rating.stars, onStar = { n -> currentKey?.let { stars(it, n) } }, size = 38.dp)
-                    }
-                    FlagCircle(Icons.Filled.Check, "Scarica", rating.flag == Flag.PICK, PickGreen) {
-                        currentKey?.let { flag(it, Flag.PICK) }
+                    val line = metas[currentKey]?.let { m ->
+                        listOfNotNull(m.exposure, m.fNumber?.let { "f/%.1f".format(it) }, m.iso?.let { "ISO $it" }, m.film)
+                    }.orEmpty()
+                    if (line.isNotEmpty()) {
+                        Text(
+                            line.joinToString("  ·  "), color = Color.White.copy(alpha = 0.9f), fontSize = 12.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.clip(CircleShape).hazeEffect(haze, glass).padding(horizontal = 12.dp, vertical = 7.dp),
+                        )
                     }
                 }
+                RatingDock(
+                    rating = rating, haze = haze, glass = glass,
+                    onReject = { currentKey?.let { flag(it, Flag.REJECT) } },
+                    onPick = { currentKey?.let { flag(it, Flag.PICK) } },
+                    onStar = { n -> currentKey?.let { stars(it, n) } },
+                )
             }
         }
     }
@@ -575,6 +591,66 @@ fun ViewerPage(
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             )
         }
+    }
+}
+
+/**
+ * Dock di voto: una capsula di vetro con ✗ · stelle · ✓. Il bottone del voto dato si riempie del suo
+ * colore con un piccolo rimbalzo e il bordo della capsula si accende di verde o rosso,
+ * così lo stato si legge con la coda dell'occhio mentre si scorrono le foto.
+ */
+@Composable
+private fun RatingDock(
+    rating: Rating,
+    haze: HazeState,
+    glass: HazeStyle,
+    onReject: () -> Unit,
+    onPick: () -> Unit,
+    onStar: (Int) -> Unit,
+) {
+    val ring by animateColorAsState(
+        when (rating.flag) {
+            Flag.PICK -> PickGreen
+            Flag.REJECT -> RejectRed
+            Flag.NONE -> Color.White.copy(alpha = 0.14f)
+        },
+        label = "ring",
+    )
+    val shape = RoundedCornerShape(40.dp)
+    Row(
+        Modifier
+            .clip(shape)
+            .hazeEffect(haze, glass)
+            .border(1.5.dp, ring, shape)
+            .padding(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        VerdictButton(Icons.Filled.Close, "Scarta", rating.flag == Flag.REJECT, RejectRed, onReject)
+        StarsRow(rating.stars, onStar = onStar, size = 36.dp)
+        VerdictButton(Icons.Filled.Check, "Scarica", rating.flag == Flag.PICK, PickGreen, onPick)
+    }
+}
+
+@Composable
+private fun VerdictButton(icon: ImageVector, description: String, active: Boolean, color: Color, onClick: () -> Unit) {
+    val bg by animateColorAsState(if (active) color else color.copy(alpha = 0.16f), label = "bg")
+    val fg by animateColorAsState(if (active) Color.Black else color, label = "fg")
+    val scale by animateFloatAsState(
+        if (active) 1f else 0.9f,
+        spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "scale",
+    )
+    Box(
+        Modifier
+            .size(56.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(CircleShape)
+            .background(bg)
+            .clickable(onClickLabel = description, role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, description, tint = fg, modifier = Modifier.size(26.dp))
     }
 }
 
