@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 
 package com.hsteex.rawviewer.ui
 
@@ -128,6 +128,24 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.saveable.rememberSaveable
 
 @Composable
 fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
@@ -146,7 +164,7 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
     val keys = screen.keys
     val pager = rememberPagerState(initialPage = screen.start) { keys.size }
     var chrome by remember { mutableStateOf(true) }
-    var showInfo by remember { mutableStateOf(false) }
+    var drawerOpen by rememberSaveable { mutableStateOf(false) }
     var showRaw by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
@@ -258,104 +276,45 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
                     )
                 }
                 if (canUndo) IconButton(onClick = { vm.undo() }) { Icon(Icons.AutoMirrored.Filled.Undo, "Annulla voto", tint = Color.White) }
-                Box {
-                    var open by remember { mutableStateOf(false) }
-                    ToggleIcon(Icons.Filled.Insights, "Analisi", histogram || clipping || focus) { open = true }
-                    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                        CheckItem("Istogramma", Icons.Filled.BarChart, histogram) { vm.prefs.setShowHistogram(!histogram) }
-                        CheckItem("Luci bruciate / ombre chiuse", Icons.Filled.Exposure, clipping) { vm.prefs.setShowClipping(!clipping) }
-                        CheckItem("Messa a fuoco (peaking + punto AF)", Icons.Filled.CenterFocusStrong, focus) { vm.prefs.setShowFocus(!focus) }
-                        val hasAf = current?.let { s -> (metas[s.key] ?: vm.repo.metaFor(s))?.focusX } != null
-                        DropdownMenuItem(
-                            text = { Text("Zoom al 100% sul punto AF") },
-                            leadingIcon = { Icon(Icons.Filled.ZoomIn, null) },
-                            enabled = hasAf,
-                            onClick = { open = false; afKey = currentKey; afRequest++ },
-                        )
+                if (pager.currentPage < keys.lastIndex) {
+                    IconButton(onClick = { currentKey?.let { vm.openCompare(it, keys[pager.currentPage + 1], keys) } }) {
+                        Icon(Icons.Filled.Compare, "Confronta con la successiva", tint = Color.White)
                     }
                 }
-                Box {
-                    var more by remember { mutableStateOf(false) }
-                    IconButton(onClick = { more = true }) { Icon(Icons.Filled.MoreVert, "Altro", tint = Color.White) }
-                    DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Informazioni scatto") },
-                            leadingIcon = { Icon(Icons.Filled.Info, null) },
-                            onClick = { more = false; showInfo = true },
-                        )
-                        if (pager.currentPage < keys.lastIndex) {
-                            DropdownMenuItem(
-                                text = { Text("Confronta con la successiva") },
-                                leadingIcon = { Icon(Icons.Filled.Compare, null) },
-                                onClick = { more = false; currentKey?.let { vm.openCompare(it, keys[pager.currentPage + 1], keys) } },
-                            )
-                        }
-                        DropdownMenuItem(
-                            text = { Text("Condividi") },
-                            leadingIcon = { Icon(Icons.Filled.Share, null) },
-                            onClick = {
-                                more = false
-                                current?.let { s -> vm.shareIntent(listOf(s))?.let { runCatching { context.startActivity(it) } } }
-                            },
-                        )
-                    }
-                }
+                IconButton(onClick = {
+                    current?.let { s -> vm.shareIntent(listOf(s))?.let { runCatching { context.startActivity(it) } } }
+                }) { Icon(Icons.Filled.Share, "Condividi", tint = Color.White) }
             }
         }
 
-        // in basso: una riga di pillole (JPEG/RAW, dati di scatto) e il dock di voto ✗ · stelle · ✓
-        AnimatedVisibility(chrome, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
-            Column(
-                Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 14.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+        // cassetto: da chiuso dati di scatto + dock ✗ · stelle · ✓; tirato su anche analisi, JPEG/RAW e info
+        AnimatedVisibility(
+            chrome,
+            enter = fadeIn() + slideInVertically { it / 2 },
+            exit = fadeOut() + slideOutVertically { it / 2 },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            val meta = current?.let { metas[it.key] ?: vm.repo.metaFor(it) }
+            val line = meta?.let { m ->
+                listOfNotNull(m.exposure, m.fNumber?.let { "f/%.1f".format(it) }, m.iso?.let { "ISO $it" }, m.film)
+            }.orEmpty().joinToString("  ·  ")
+            ViewerDrawer(
+                expanded = drawerOpen,
+                onExpandedChange = { drawerOpen = it },
+                haze = haze, glass = glass, rating = rating, exposureLine = line,
+                onReject = { currentKey?.let { flag(it, Flag.REJECT) } },
+                onPick = { currentKey?.let { flag(it, Flag.PICK) } },
+                onStar = { n -> currentKey?.let { stars(it, n) } },
+                histogram = histogram, onHistogram = { vm.prefs.setShowHistogram(!histogram) },
+                clipping = clipping, onClipping = { vm.prefs.setShowClipping(!clipping) },
+                focus = focus, onFocus = { vm.prefs.setShowFocus(!focus) },
+                hasAf = meta?.focusX != null,
+                onAfZoom = { afKey = currentKey; afRequest++ },
+                rawChoice = current?.takeIf { vm.repo.canDevelopRaw(it) }?.let { if (it.jpeg != null) "JPEG" else "Anteprima" },
+                showRaw = showRaw, onRaw = { showRaw = it },
             ) {
-                Row(
-                    Modifier.padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (current != null && vm.repo.canDevelopRaw(current)) {
-                        Row(Modifier.clip(CircleShape).hazeEffect(haze, glass).padding(3.dp)) {
-                            for ((label, raw) in listOf((if (current.jpeg != null) "JPEG" else "Anteprima") to false, "RAW" to true)) {
-                                val sel = showRaw == raw
-                                Text(
-                                    label,
-                                    color = if (sel) MaterialTheme.colorScheme.onPrimary else Color.White,
-                                    fontWeight = FontWeight.SemiBold, fontSize = 12.sp,
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .background(if (sel) Accent else Color.Transparent)
-                                        .clickable { showRaw = raw }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                )
-                            }
-                        }
-                    }
-                    val line = metas[currentKey]?.let { m ->
-                        listOfNotNull(m.exposure, m.fNumber?.let { "f/%.1f".format(it) }, m.iso?.let { "ISO $it" }, m.film)
-                    }.orEmpty()
-                    if (line.isNotEmpty()) {
-                        Text(
-                            line.joinToString("  ·  "), color = Color.White.copy(alpha = 0.9f), fontSize = 12.sp,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.clip(CircleShape).hazeEffect(haze, glass).padding(horizontal = 12.dp, vertical = 7.dp),
-                        )
-                    }
-                }
-                RatingDock(
-                    rating = rating, haze = haze, glass = glass,
-                    onReject = { currentKey?.let { flag(it, Flag.REJECT) } },
-                    onPick = { currentKey?.let { flag(it, Flag.PICK) } },
-                    onStar = { n -> currentKey?.let { stars(it, n) } },
-                )
+                current?.let { InfoContent(it, meta) }
             }
-        }
-    }
-
-    if (showInfo && current != null) {
-        ModalBottomSheet(onDismissRequest = { showInfo = false }, containerColor = Surface1) {
-            InfoContent(current, metas[current.key] ?: vm.repo.metaFor(current))
         }
     }
 }
@@ -630,6 +589,161 @@ private fun RatingDock(
         StarsRow(rating.stars, onStar = onStar, size = 36.dp)
         VerdictButton(Icons.Filled.Check, "Scarica", rating.flag == Flag.PICK, PickGreen, onPick)
     }
+}
+
+@Composable
+private fun ViewerDrawer(
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    haze: HazeState,
+    glass: HazeStyle,
+    rating: Rating,
+    exposureLine: String,
+    onReject: () -> Unit,
+    onPick: () -> Unit,
+    onStar: (Int) -> Unit,
+    histogram: Boolean,
+    onHistogram: () -> Unit,
+    clipping: Boolean,
+    onClipping: () -> Unit,
+    focus: Boolean,
+    onFocus: () -> Unit,
+    hasAf: Boolean,
+    onAfZoom: () -> Unit,
+    /** Etichetta del lato "non RAW" del selettore, null se il RAW non è sviluppabile. */
+    rawChoice: String?,
+    showRaw: Boolean,
+    onRaw: (Boolean) -> Unit,
+    info: @Composable () -> Unit,
+) {
+    val ring by animateColorAsState(
+        when (rating.flag) {
+            Flag.PICK -> PickGreen
+            Flag.REJECT -> RejectRed
+            Flag.NONE -> Color.White.copy(alpha = 0.12f)
+        },
+        label = "ring",
+    )
+    val shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    var drag by remember { mutableFloatStateOf(0f) }
+    val dragState = rememberDraggableState { d -> drag += d }
+    CompositionLocalProvider(LocalContentColor provides Color.White) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .hazeEffect(haze, glass)
+                .border(1.5.dp, ring, shape)
+                // tirare su apre, tirare giù chiude (solo sul cassetto: sulla foto lo swipe vota)
+                .draggable(
+                    dragState, Orientation.Vertical,
+                    onDragStarted = { drag = 0f },
+                    onDragStopped = {
+                        if (drag < -40f) onExpandedChange(true) else if (drag > 40f) onExpandedChange(false)
+                    },
+                )
+                .navigationBarsPadding()
+                .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                Modifier
+                    .size(width = 64.dp, height = 28.dp)
+                    .clickable(onClickLabel = if (expanded) "Chiudi dettagli" else "Apri dettagli") { onExpandedChange(!expanded) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(Modifier.size(width = 36.dp, height = 4.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.45f)))
+            }
+            if (exposureLine.isNotEmpty()) {
+                Text(
+                    exposureLine, color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                VerdictButton(Icons.Filled.Close, "Scarta", rating.flag == Flag.REJECT, RejectRed, onReject)
+                StarsRow(rating.stars, onStar = onStar, size = 36.dp)
+                VerdictButton(Icons.Filled.Check, "Scarica", rating.flag == Flag.PICK, PickGreen, onPick)
+            }
+            AnimatedVisibility(
+                expanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    DrawerLabel("Analisi")
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        DrawerChip("Istogramma", Icons.Filled.BarChart, histogram, onHistogram)
+                        DrawerChip("Bruciature", Icons.Filled.Exposure, clipping, onClipping)
+                        DrawerChip("Messa a fuoco", Icons.Filled.CenterFocusStrong, focus, onFocus)
+                        if (hasAf) {
+                            AssistChip(
+                                onClick = onAfZoom,
+                                label = { Text("100% sul punto AF") },
+                                leadingIcon = { Icon(Icons.Filled.ZoomIn, null, Modifier.size(18.dp)) },
+                                colors = AssistChipDefaults.assistChipColors(labelColor = Color.White, leadingIconContentColor = Accent),
+                            )
+                        }
+                    }
+                    if (rawChoice != null) {
+                        DrawerLabel("Sviluppo")
+                        Row(Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.10f)).padding(3.dp)) {
+                            for ((label, raw) in listOf(rawChoice to false, "RAW" to true)) {
+                                val sel = showRaw == raw
+                                Text(
+                                    label,
+                                    color = if (sel) MaterialTheme.colorScheme.onPrimary else Color.White,
+                                    fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(if (sel) Accent else Color.Transparent)
+                                        .clickable { onRaw(raw) }
+                                        .padding(horizontal = 16.dp, vertical = 7.dp),
+                                )
+                            }
+                        }
+                    }
+                    DrawerLabel("Scatto")
+                    Box(Modifier.padding(start = 0.dp)) { info() }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DrawerLabel(text: String) {
+    Text(text, color = Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+}
+
+@Composable
+private fun DrawerChip(label: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label) },
+        leadingIcon = { Icon(if (selected) Icons.Filled.Check else icon, null, Modifier.size(18.dp)) },
+        colors = FilterChipDefaults.filterChipColors(
+            labelColor = Color.White,
+            iconColor = Color.White.copy(alpha = 0.8f),
+            selectedContainerColor = Accent.copy(alpha = 0.25f),
+            selectedLabelColor = Accent,
+            selectedLeadingIconColor = Accent,
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = true, selected = selected,
+            borderColor = Color.White.copy(alpha = 0.25f),
+            selectedBorderColor = Accent,
+        ),
+    )
 }
 
 @Composable

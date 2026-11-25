@@ -34,8 +34,7 @@ legge la SD con un **adattatore USB-C** e scrive in italiano: UI e messaggi in i
   calcolati sull'anteprima in memoria (sempre il JPEG). Le maschere si disegnano nel `transformedContentBounds`, quindi
   seguono lo zoom. Menu "Analisi": istogramma, bruciature, messa a fuoco (peaking = laplaciano sull'anteprima + riquadro
   del punto AF Fuji, MakerNote 0x1031, DB v4) e zoom al 100% sul punto AF. Doppio tocco = 100% (maxZoom calcolato
-  dai pixel veri della foto). Comandi in basso su due
-  righe (dati di scatto + JPEG/RAW, poi ✗ · stelle · ✓); Confronta e Condividi nel menu ⋮.
+  dai pixel veri della foto). Comandi nel cassetto in basso (vedi Design).
 - Filtri avanzati (chip "⚙ Avanzati" → bottom sheet): simulazione, obiettivo, orientamento, ISO massimo; escludono
   gli scatti senza metadati letti.
 - La posizione della griglia (`LazyGridState`) vive nel ViewModel; al ritorno si porta sull'ultima foto vista.
@@ -70,8 +69,11 @@ legge la SD con un **adattatore USB-C** e scrive in italiano: UI e messaggi in i
 - Vetro opaco con Haze 1.2.2 (`hazeSource` sul contenuto, `hazeEffect` sulle barre): `frosted()` per griglia
   (intestazione + barra di selezione), `frostedDark()` (tinta nera neutra) sopra le foto: barre del visualizzatore,
   dock di voto, pillole del confronto. Mai un `hazeEffect` dentro il proprio `hazeSource`.
-- Visualizzatore: in basso pillole (JPEG/RAW, dati di scatto) + `RatingDock` (capsula ✗ · stelle · ✓, bordo che si
-  accende col voto). Info scatto nel menu ⋮. Mockup di riferimento: artifact "RAW Viewer Redesign".
+- Visualizzatore: in basso un cassetto di vetro (`ViewerDrawer`): da chiuso maniglia, dati di scatto e ✗ · stelle · ✓
+  (bordo che si accende col voto); tirato su (o tocco sulla maniglia) analisi (istogramma, bruciature, fuoco,
+  100% sul punto AF), JPEG/RAW e info scatto. Il trascinamento vale solo sul cassetto: sulla foto lo swipe vota.
+  In alto: indietro, titolo, annulla, confronta, condividi (niente menu ⋮).
+  Mockup di riferimento: artifact "RAW Viewer Redesign".
 - Home e Impostazioni: liste raggruppate (`groupShape` in HomeScreen.kt; in Impostazioni piastrelle con fessura da 3 dp).
 
 ## Decisioni prese con l'utente
