@@ -98,7 +98,7 @@ fun CompareScreen(vm: MainViewModel, screen: Screen.Compare) {
             val panes: @Composable (Modifier, Modifier) -> Unit = { m1, m2 ->
                 shotMap[keyA]?.let { s ->
                     ComparePane(vm, s, ratings[s.key] ?: Rating(), zoomA, selected = target == 0, onSelect = { target = 0 },
-                        modifier = m1.onSizeChanged { paneSize = it })
+                        modifier = m1, onSize = { paneSize = it })
                 }
                 shotMap[keyB]?.let { s ->
                     ComparePane(vm, s, ratings[s.key] ?: Rating(), zoomB, selected = target == 1, onSelect = { target = 1 }, modifier = m2)
@@ -141,13 +141,15 @@ private fun ComparePane(
     selected: Boolean,
     onSelect: () -> Unit,
     modifier: Modifier,
+    onSize: (IntSize) -> Unit = {},
 ) {
     val borderColor = when (rating.flag) {
         Flag.PICK -> PickGreen
         Flag.REJECT -> RejectRed
         Flag.NONE -> if (selected) Accent.copy(alpha = 0.6f) else Color.Transparent
     }
-    Box(modifier.padding(2.dp).border(2.dp, borderColor)) {
+    // misurato dentro il margine: è proprio l'area in cui sta la foto (serve allo zoom collegato)
+    Box(modifier.padding(2.dp).border(2.dp, borderColor).onSizeChanged(onSize)) {
         ViewerPage(repo = vm.repo, shot = shot, onTap = onSelect, swipeEnabled = false, onSwipe = {}, zoomState = zoom)
         Row(
             Modifier.align(Alignment.TopEnd).padding(8.dp),
@@ -244,13 +246,19 @@ private suspend fun linkZoom(a: ZoomableState, b: ZoomableState, viewport: () ->
         val fb = from.transformedContentBounds
         val tb = to.transformedContentBounds
         if (fb.isEmpty || tb.isEmpty) return
+        // ingrandimento "utente" (1 = foto adattata al riquadro), confrontabile tra foto di risoluzione diversa
         val zoomFrom = fb.width / fitWidth(fb, vp)
         val zoomTo = tb.width / fitWidth(tb, vp)
+        // zoomTo() di telephoto vuole invece lo zoom finale rispetto ai pixel della foto di destinazione
+        val toScale = to.contentTransformation.scale.scaleX
+        val toIntrinsicWidth = if (toScale > 0f) tb.width / toScale else return
         val fx = (vp.width / 2 - fb.left) / fb.width
         val fy = (vp.height / 2 - fb.top) / fb.height
         applying = to
         try {
-            if (abs(zoomFrom - zoomTo) / zoomFrom > 0.003f) to.zoomTo(zoomFrom, animationSpec = snap())
+            if (abs(zoomFrom - zoomTo) / zoomFrom > 0.003f) {
+                to.zoomTo(zoomFrom * fitWidth(tb, vp) / toIntrinsicWidth, animationSpec = snap())
+            }
             val nb = to.transformedContentBounds
             val want = Offset(vp.width / 2 - fx * nb.width, vp.height / 2 - fy * nb.height)
             val d = want - nb.topLeft

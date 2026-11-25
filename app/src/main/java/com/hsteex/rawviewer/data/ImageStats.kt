@@ -69,7 +69,7 @@ class ImageStats(
          * per giudicare la nitidezza vera serve lo zoom al 100%.
          */
         fun focusMask(b: Bitmap): Bitmap {
-            val step = if (max(b.width, b.height) > 1200) 2 else 1
+            val step = 1 // piena risoluzione dell'anteprima: niente quadrettoni
             val w = b.width / step
             val h = b.height / step
             val lum = IntArray(w * h)
@@ -107,7 +107,7 @@ class ImageStats(
 
         /** Maschera trasparente (metà risoluzione): rosso dove è bruciato, blu dove è chiuso. */
         fun clippingMask(b: Bitmap): Bitmap {
-            val step = if (max(b.width, b.height) > 1200) 2 else 1
+            val step = 1 // piena risoluzione dell'anteprima: niente quadrettoni
             val mw = b.width / step
             val mh = b.height / step
             val out = IntArray(mw * mh)

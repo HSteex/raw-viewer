@@ -481,7 +481,8 @@ fun ViewerPage(
                 zoom.resetZoom(snap())
                 val b = zoom.transformedContentBounds
                 if (b.isEmpty) return@LaunchedEffect
-                zoom.zoomTo(zoom.zoomSpec.maximum.factor, centroid = Offset(b.left + p.x * b.width, b.top + p.y * b.height))
+                // zoomTo vuole lo zoom *finale* rispetto ai pixel della foto: 1f = 100%
+                zoom.zoomTo(1f, centroid = Offset(b.left + p.x * b.width, b.top + p.y * b.height))
                 val nb = zoom.transformedContentBounds
                 val at = Offset(nb.left + p.x * nb.width, nb.top + p.y * nb.height)
                 zoom.panBy(Offset(boxSize.width / 2f, boxSize.height / 2f) - at)
@@ -649,7 +650,7 @@ private fun AnalysisOverlay(r: Rect, clip: ImageBitmap?, focus: ImageBitmap?, af
         val dstOff = IntOffset(r.left.roundToInt(), r.top.roundToInt())
         val dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt())
         for (m in listOfNotNull(focus, clip)) {
-            drawImage(m, IntOffset.Zero, IntSize(m.width, m.height), dstOff, dstSize, filterQuality = FilterQuality.None)
+            drawImage(m, IntOffset.Zero, IntSize(m.width, m.height), dstOff, dstSize, alpha = 0.9f, filterQuality = FilterQuality.Low)
         }
         if (af != null) {
             val c = Offset(r.left + af.x * r.width, r.top + af.y * r.height)

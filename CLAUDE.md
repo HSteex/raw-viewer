@@ -41,6 +41,9 @@ legge la SD con un **adattatore USB-C** e scrive in italiano: UI e messaggi in i
 - La posizione della griglia (`LazyGridState`) vive nel ViewModel; al ritorno si porta sull'ultima foto vista.
 - Confronto: striscia di foto in basso (l'elenco da cui si arriva, `Screen.Compare.keys`); un tocco mette la foto nel
   riquadro selezionato. Zoom collegato (`linkZoom`): stesso ingrandimento relativo e stesso punto in frazioni dell'immagine.
+- Le anteprime incorporate Fuji (MPF, miniatura EXIF) sono 4:3 con bande nere: `decodeShot` le ritaglia al formato della
+  foto (`cropToAspect` con larghezza/altezza EXIF). Miniature ora `.g3.jpg`.
+- `ZoomableState.zoomTo()` vuole lo zoom FINALE rispetto ai pixel della foto (1f = 100%), non quello rispetto al fit.
 - MPF: come anteprima valgono solo le voci "Large Thumbnail" (0x010001/0x010002). Negli Ultra HDR la secondaria è
   la gain map (causava il "flash" grigio). DB v3 svuota la cache metadati; miniature ora `.g2.jpg`.
 - Ordinamento per data: per gli scatti non ancora indicizzati la data del file è corretta con la mediana dello scarto

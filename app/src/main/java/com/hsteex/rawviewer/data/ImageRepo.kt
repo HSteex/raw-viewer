@@ -65,7 +65,7 @@ class ImageRepo(private val context: Context, private val db: Db) {
     init {
         scope.launch {
             // miniature della versione precedente (potevano venire dalla gain map HDR)
-            diskDir.listFiles { f -> f.name.endsWith(".g.jpg") }?.forEach { it.delete() }
+            diskDir.listFiles { f -> f.name.endsWith(".g.jpg") || f.name.endsWith(".g2.jpg") }?.forEach { it.delete() }
             trimDiskCache()
         }
     }
@@ -200,7 +200,11 @@ class ImageRepo(private val context: Context, private val db: Db) {
 
     // ------------------------------------------------------------------ sorgenti
 
-    private data class Src(val uri: Uri, val off: Long, val len: Int, val orientation: Int, val whole: Boolean = false)
+    /** [meta]: dimensioni vere della foto, per togliere le bande nere delle anteprime incorporate. */
+    private data class Src(
+        val uri: Uri, val off: Long, val len: Int, val orientation: Int,
+        val whole: Boolean = false, val meta: PhotoMeta? = null,
+    )
 
     /**
      * Sorgenti candidate in ordine di convenienza (byte da leggere ↔ qualità).
@@ -210,20 +214,20 @@ class ImageRepo(private val context: Context, private val db: Db) {
         val j = s.jpeg
         val jInfo = j?.takeIf { it.kind == Kind.JPEG }?.let { info(it) }
         if (j != null && jInfo != null && jInfo.prevLen > 0) {
-            yield(Src(j.uri, jInfo.prevOff, jInfo.prevLen, jInfo.meta.orientation))
+            yield(Src(j.uri, jInfo.prevOff, jInfo.prevLen, jInfo.meta.orientation, meta = jInfo.meta))
         }
         val r = s.raw
         val rInfo = r?.let { info(it) }
         if (r != null && rInfo != null) {
             val o = rInfo.meta.orientation
-            if (rInfo.prevLen > 0) yield(Src(r.uri, rInfo.prevOff, rInfo.prevLen, o))
-            if (rInfo.jpgLen > 0) yield(Src(r.uri, rInfo.jpgOff, rInfo.jpgLen, o))
+            if (rInfo.prevLen > 0) yield(Src(r.uri, rInfo.prevOff, rInfo.prevLen, o, meta = rInfo.meta))
+            if (rInfo.jpgLen > 0) yield(Src(r.uri, rInfo.jpgOff, rInfo.jpgLen, o, meta = rInfo.meta))
         }
         if (allowWhole && j != null) {
             yield(Src(j.uri, 0, 0, jInfo?.meta?.orientation ?: heifOrientation(j), whole = true))
         }
-        if (j != null && jInfo != null && jInfo.thumbLen > 0) yield(Src(j.uri, jInfo.thumbOff, jInfo.thumbLen, jInfo.meta.orientation))
-        if (r != null && rInfo != null && rInfo.thumbLen > 0) yield(Src(r.uri, rInfo.thumbOff, rInfo.thumbLen, rInfo.meta.orientation))
+        if (j != null && jInfo != null && jInfo.thumbLen > 0) yield(Src(j.uri, jInfo.thumbOff, jInfo.thumbLen, jInfo.meta.orientation, meta = jInfo.meta))
+        if (r != null && rInfo != null && rInfo.thumbLen > 0) yield(Src(r.uri, rInfo.thumbOff, rInfo.thumbLen, rInfo.meta.orientation, meta = rInfo.meta))
     }
 
     private fun heifOrientation(f: MediaFile): Int = runCatching {
@@ -238,7 +242,11 @@ class ImageRepo(private val context: Context, private val db: Db) {
                 Log.w(TAG, "decode ${s.baseName}", e)
                 null
             }
-            if (bmp != null) return rotate(bmp, src.orientation)
+            // le anteprime incorporate (Fuji: MPF 4:3, miniatura 160×120) hanno bande nere se la foto è 3:2 o 16:9
+            if (bmp != null) {
+                val cropped = if (src.whole) bmp else cropToAspect(bmp, src.meta?.width, src.meta?.height)
+                return rotate(cropped, src.orientation)
+            }
         }
         return null
     }
@@ -345,7 +353,7 @@ class ImageRepo(private val context: Context, private val db: Db) {
         return out
     }
 
-    private fun gridFile(s: Shot) = File(diskDir, hash(s.display.cacheId + "|" + (s.raw?.cacheId ?: "")) + ".g2.jpg")
+    private fun gridFile(s: Shot) = File(diskDir, hash(s.display.cacheId + "|" + (s.raw?.cacheId ?: "")) + ".g3.jpg")
 
     suspend fun grid(s: Shot): Bitmap? = withContext(ioThumbs) { loadGrid(s, keepInMemory = true) }
 
