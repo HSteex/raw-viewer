@@ -77,6 +77,7 @@ import me.saket.telephoto.subsamplingimage.SubSamplingImage
 import me.saket.telephoto.subsamplingimage.SubSamplingImageSource
 import me.saket.telephoto.subsamplingimage.rememberSubSamplingImageState
 import me.saket.telephoto.zoomable.ZoomSpec
+import me.saket.telephoto.zoomable.ZoomableState
 import me.saket.telephoto.zoomable.rememberZoomableState
 import me.saket.telephoto.zoomable.zoomable
 import kotlin.math.abs
@@ -231,7 +232,7 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
                             DropdownMenuItem(
                                 text = { Text("Confronta con la successiva") },
                                 leadingIcon = { Icon(Icons.Filled.Compare, null) },
-                                onClick = { more = false; currentKey?.let { vm.openCompare(it, keys[pager.currentPage + 1]) } },
+                                onClick = { more = false; currentKey?.let { vm.openCompare(it, keys[pager.currentPage + 1], keys) } },
                             )
                         }
                         DropdownMenuItem(
@@ -329,6 +330,8 @@ fun ViewerPage(
     histogram: Boolean = false,
     clipping: Boolean = false,
     chrome: Boolean = true,
+    /** Stato dello zoom passato da fuori (confronto con zoom collegato); null = proprio. */
+    zoomState: ZoomableState? = null,
     onPreview: () -> Unit = {},
 ) {
     var source by remember(shot.key, raw) { mutableStateOf<SubSamplingImageSource?>(null) }
@@ -403,8 +406,15 @@ fun ViewerPage(
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
         } else {
-            val zoom = rememberZoomableState(zoomSpec = ZoomSpec(maxZoomFactor = 3f))
+            val zoom = zoomState ?: rememberZoomableState(zoomSpec = ZoomSpec(maxZoomFactor = 3f))
             val state = rememberSubSamplingImageState(imageSource = src, zoomableState = zoom)
+            // finché telephoto non ha disegnato niente resta sotto l'anteprima: niente fotogrammi neri
+            if (!state.isImageDisplayed) {
+                (preview ?: gridThumb)?.let { p ->
+                    val img = remember(p) { p.asImageBitmap() }
+                    Image(img, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                }
+            }
             if (showTimings) {
                 LaunchedEffect(state) {
                     snapshotFlow { state.isImageDisplayedInFullQuality }.first { it }

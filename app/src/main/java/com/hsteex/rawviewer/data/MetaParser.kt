@@ -216,7 +216,11 @@ object MetaParser {
 
     // ---------------- MPF ----------------
 
-    /** Ritorna (offset relativo all'header MPF, lunghezza) dell'immagine secondaria più grande. */
+    /**
+     * Ritorna (offset relativo all'header MPF, lunghezza) dell'anteprima secondaria più grande.
+     * Solo le voci marcate come "Large Thumbnail" (tipo 0x010001 / 0x010002), come quelle Fuji:
+     * negli Ultra HDR (Pixel e altri) l'immagine secondaria è la gain map in scala di grigi, non un'anteprima.
+     */
     private fun parseMpf(d: ByteArray, start: Int): Pair<Long, Int>? {
         val t = Tiff(d, start)
         if (t.u16(2) != 42) return null
@@ -229,9 +233,10 @@ object MetaParser {
             for (i in 0 until n) {
                 val p = o + i * 16
                 if (!t.valid(p, 16)) break
+                val type = t.u32(p).toInt() and 0xFFFFFF
                 val size = t.u32(p + 4)
                 val off = t.u32(p + 8)
-                if (off > 0 && size in 1..MAX_PREVIEW) {
+                if ((type == 0x010001 || type == 0x010002) && off > 0 && size in 1..MAX_PREVIEW) {
                     if (best == null || size > best.second) best = off to size.toInt()
                 }
             }

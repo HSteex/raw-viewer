@@ -8,7 +8,7 @@ import android.database.sqlite.SQLiteOpenHelper
 import android.net.Uri
 
 /** Database interno: voti, cache dei metadati e cartelle recenti. */
-class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 2) {
+class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 3) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -26,6 +26,8 @@ class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 2) 
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) db.execSQL("ALTER TABLE ratings ADD COLUMN downloaded INTEGER NOT NULL DEFAULT 0")
+        // v3: il parser MPF scartava male le gain map HDR → si rilegge tutto (è solo una cache)
+        if (oldVersion < 3) db.execSQL("DELETE FROM meta")
     }
 
     // ---------- ratings ----------

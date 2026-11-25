@@ -34,6 +34,12 @@ legge la SD con un **adattatore USB-C** e scrive in italiano: UI e messaggi in i
   calcolati sull'anteprima in memoria (sempre il JPEG); la maschera è allineata solo a zoom 1. Comandi in basso su due
   righe (dati di scatto + JPEG/RAW, poi ✗ · stelle · ✓); Confronta e Condividi nel menu ⋮.
 - La posizione della griglia (`LazyGridState`) vive nel ViewModel; al ritorno si porta sull'ultima foto vista.
+- Confronto: striscia di foto in basso (l'elenco da cui si arriva, `Screen.Compare.keys`); un tocco mette la foto nel
+  riquadro selezionato. Zoom collegato (`linkZoom`): stesso ingrandimento relativo e stesso punto in frazioni dell'immagine.
+- MPF: come anteprima valgono solo le voci "Large Thumbnail" (0x010001/0x010002). Negli Ultra HDR la secondaria è
+  la gain map (causava il "flash" grigio). DB v3 svuota la cache metadati; miniature ora `.g2.jpg`.
+- Ordinamento per data: per gli scatti non ancora indicizzati la data del file è corretta con la mediana dello scarto
+  ora di scatto/data file (`Library.mtimeOffset`): sulle SD FAT è sfasata del fuso orario.
 - Griglia: le celle mostrano subito la miniatura EXIF (`quickThumb`, solo per scatti già indicizzati), poi quella
   da 640px. Le miniature in background si generano partendo dalla posizione di scorrimento della griglia.
 - "Scaricata": colonna `downloaded` in `ratings` (DB v2). `ImportWorker` segna ogni scatto quando tutti i suoi file

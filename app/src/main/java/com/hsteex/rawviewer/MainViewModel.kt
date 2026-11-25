@@ -45,7 +45,8 @@ sealed interface Screen {
     data object Browser : Screen
     data object Settings : Screen
     data class Viewer(val keys: List<String>, val start: Int) : Screen
-    data class Compare(val a: String, val b: String) : Screen
+    /** [keys]: le foto da cui scegliere nella striscia in basso (l'elenco da cui si arriva). */
+    data class Compare(val a: String, val b: String, val keys: List<String>) : Screen
 }
 
 sealed interface ScanState {
@@ -413,7 +414,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         navigate(Screen.Viewer(keys, start.coerceIn(0, keys.lastIndex)))
     }
 
-    fun openCompare(a: String, b: String) = navigate(Screen.Compare(a, b))
+    fun openCompare(a: String, b: String, keys: List<String>) =
+        navigate(Screen.Compare(a, b, keys.ifEmpty { listOf(a, b) }))
 
     fun startImport(list: List<Shot>, format: ImportFormat): Int {
         prefs.setImportFormat(format)

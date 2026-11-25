@@ -63,7 +63,11 @@ class ImageRepo(private val context: Context, private val db: Db) {
     private val fullDir = File(context.cacheDir, "full").apply { mkdirs() }
 
     init {
-        scope.launch { trimDiskCache() }
+        scope.launch {
+            // miniature della versione precedente (potevano venire dalla gain map HDR)
+            diskDir.listFiles { f -> f.name.endsWith(".g.jpg") }?.forEach { it.delete() }
+            trimDiskCache()
+        }
     }
 
     // ------------------------------------------------------------------ priorità I/O
@@ -341,7 +345,7 @@ class ImageRepo(private val context: Context, private val db: Db) {
         return out
     }
 
-    private fun gridFile(s: Shot) = File(diskDir, hash(s.display.cacheId + "|" + (s.raw?.cacheId ?: "")) + ".g.jpg")
+    private fun gridFile(s: Shot) = File(diskDir, hash(s.display.cacheId + "|" + (s.raw?.cacheId ?: "")) + ".g2.jpg")
 
     suspend fun grid(s: Shot): Bitmap? = withContext(ioThumbs) { loadGrid(s, keepInMemory = true) }
 

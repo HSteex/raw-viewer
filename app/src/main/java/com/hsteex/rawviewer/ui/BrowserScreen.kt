@@ -215,7 +215,7 @@ fun BrowserScreen(vm: MainViewModel) {
                     onStars = { vm.setStars(selection, it) },
                     onCompare = {
                         val s = vm.selectedShots()
-                        if (s.size == 2) vm.openCompare(s[0].key, s[1].key)
+                        if (s.size == 2) vm.openCompare(s[0].key, s[1].key, filtered.map { it.key })
                     },
                     onDownload = { importReq = ImportRequest(vm.selectedShots(), "Scarica selezionati") },
                 )

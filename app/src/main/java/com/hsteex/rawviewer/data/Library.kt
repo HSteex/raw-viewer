@@ -39,7 +39,29 @@ sealed interface GridItem {
 
 object Library {
 
-    fun time(s: Shot, metas: Map<String, PhotoMeta>): Long = metas[s.key]?.dateTaken ?: s.modified
+    /**
+     * Ora di scatto. Se i metadati non sono ancora stati letti si usa la data del file, corretta di
+     * [mtimeOffset]: sulle SD (FAT) è in ora locale letta come UTC, quindi sfasata del fuso orario,
+     * e senza correzione gli scatti non ancora indicizzati finirebbero fuori posto.
+     */
+    fun time(s: Shot, metas: Map<String, PhotoMeta>, mtimeOffset: Long = 0): Long =
+        metas[s.key]?.dateTaken ?: (s.modified + mtimeOffset)
+
+    /** Scarto tipico (mediana) tra ora di scatto e data del file, misurato sugli scatti già indicizzati. */
+    fun mtimeOffset(shots: List<Shot>, metas: Map<String, PhotoMeta>): Long {
+        if (metas.isEmpty()) return 0
+        val diffs = ArrayList<Long>()
+        val step = (shots.size / 400).coerceAtLeast(1)
+        var i = 0
+        while (i < shots.size) {
+            val s = shots[i]
+            metas[s.key]?.dateTaken?.let { diffs += it - s.modified }
+            i += step
+        }
+        if (diffs.isEmpty()) return 0
+        diffs.sort()
+        return diffs[diffs.size / 2]
+    }
 
     fun apply(
         shots: List<Shot>,
@@ -66,9 +88,12 @@ object Library {
             }
             flagOk && typeOk && r.stars >= f.minStars && (f.folder == null || s.relDir == f.folder)
         }
+        val off = mtimeOffset(shots, metas)
         return when (f.sort) {
-            Sort.TIME_ASC -> out.sortedWith(compareBy<Shot>({ time(it, metas) }, { it.baseName }))
-            Sort.TIME_DESC -> out.sortedWith(compareByDescending<Shot> { time(it, metas) }.thenByDescending { it.baseName })
+            Sort.TIME_ASC -> out.sortedWith(compareBy<Shot>({ time(it, metas, off) }, { it.relDir }, { it.baseName }))
+            Sort.TIME_DESC -> out.sortedWith(
+                compareByDescending<Shot> { time(it, metas, off) }.thenByDescending { it.relDir }.thenByDescending { it.baseName }
+            )
             Sort.NAME_ASC -> out.sortedWith(compareBy({ it.relDir }, { it.baseName }))
             Sort.NAME_DESC -> out.sortedWith(compareByDescending<Shot> { it.relDir }.thenByDescending { it.baseName })
         }
@@ -80,6 +105,7 @@ object Library {
      */
     fun bursts(sorted: List<Shot>, metas: Map<String, PhotoMeta>, gapMs: Long, enabled: Boolean): List<GridItem> {
         if (!enabled || sorted.size < 3) return sorted.map { GridItem.Single(it) }
+        val off = mtimeOffset(sorted, metas)
         val out = ArrayList<GridItem>()
         var run = ArrayList<Shot>()
         fun flush() {
@@ -89,7 +115,7 @@ object Library {
         for (s in sorted) {
             val prev = run.lastOrNull()
             if (prev != null &&
-                (prev.relDir != s.relDir || kotlin.math.abs(time(s, metas) - time(prev, metas)) > gapMs)
+                (prev.relDir != s.relDir || kotlin.math.abs(time(s, metas, off) - time(prev, metas, off)) > gapMs)
             ) flush()
             run += s
         }
