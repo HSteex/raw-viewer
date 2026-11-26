@@ -148,6 +148,10 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.hsteex.rawviewer.data.DebugLog
 import kotlinx.coroutines.CancellationException
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
 
 @Composable
 fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
@@ -315,7 +319,7 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
                 rawChoice = current?.takeIf { vm.repo.canDevelopRaw(it) }?.let { if (it.jpeg != null) "JPEG" else "Anteprima" },
                 showRaw = showRaw, onRaw = { showRaw = it },
             ) {
-                current?.let { InfoContent(it, meta) }
+                current?.let { InfoContent(it, meta, compact = true) }
             }
         }
     }
@@ -485,8 +489,15 @@ fun ViewerPage(
                 zoom.panBy(Offset(boxSize.width / 2f, boxSize.height / 2f) - at)
             }
             val state = rememberSubSamplingImageState(imageSource = src, zoomableState = zoom)
-            // finché telephoto non ha disegnato niente resta sotto l'anteprima: niente fotogrammi neri
-            if (!state.isImageDisplayed) {
+            // l'anteprima resta sotto finché la piena qualità non è davvero a schermo (+2 fotogrammi di margine:
+            // "displayed" arriva un fotogramma prima del disegno vero, e toglierla subito dava un lampo nero)
+            var coverGone by remember(state) { mutableStateOf(false) }
+            LaunchedEffect(state) {
+                snapshotFlow { state.isImageDisplayedInFullQuality }.first { it }
+                repeat(2) { withFrameNanos { } }
+                coverGone = true
+            }
+            if (!coverGone) {
                 (preview ?: gridThumb)?.let { p ->
                     val img = remember(p) { p.asImageBitmap() }
                     Image(img, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
@@ -728,21 +739,14 @@ private fun ViewerDrawer(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     DrawerLabel("Analisi")
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        DrawerChip("Istogramma", Icons.Filled.BarChart, histogram, onHistogram)
-                        DrawerChip("Bruciature", Icons.Filled.Exposure, clipping, onClipping)
-                        DrawerChip("Messa a fuoco", Icons.Filled.CenterFocusStrong, focus, onFocus)
-                        if (hasAf) {
-                            AssistChip(
-                                onClick = onAfZoom,
-                                label = { Text("100% sul punto AF") },
-                                leadingIcon = { Icon(Icons.Filled.ZoomIn, null, Modifier.size(18.dp)) },
-                                colors = AssistChipDefaults.assistChipColors(labelColor = Color.White, leadingIconContentColor = Accent),
-                            )
-                        }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AnalysisButton(Icons.Filled.BarChart, "Istogramma", histogram, onHistogram)
+                        AnalysisButton(Icons.Filled.Exposure, "Luci bruciate e ombre chiuse", clipping, onClipping)
+                        AnalysisButton(Icons.Filled.CenterFocusStrong, "Messa a fuoco", focus, onFocus)
+                        if (hasAf) AnalysisButton(Icons.Filled.ZoomIn, "Zoom al 100% sul punto AF", false, onAfZoom)
                     }
                     DrawerLabel("Scatto")
-                    Box(Modifier.padding(start = 0.dp)) { info() }
+                    info()
                 }
             }
         }
@@ -752,6 +756,24 @@ private fun ViewerDrawer(
 @Composable
 private fun DrawerLabel(text: String) {
     Text(text, color = Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+}
+
+/** Interruttore tondo, solo icona: pieno del colore del tema quando è acceso. */
+@Composable
+private fun AnalysisButton(icon: ImageVector, description: String, on: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(if (on) Accent else Color.White.copy(alpha = 0.12f), label = "abg")
+    val fg by animateColorAsState(if (on) MaterialTheme.colorScheme.onPrimary else Color.White, label = "afg")
+    Box(
+        Modifier
+            .size(52.dp)
+            .clip(CircleShape)
+            .background(bg)
+            .clickable(onClickLabel = description, role = Role.Switch, onClick = onClick)
+            .semantics { contentDescription = description; stateDescription = if (on) "attivo" else "spento" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, null, tint = fg, modifier = Modifier.size(24.dp))
+    }
 }
 
 @Composable

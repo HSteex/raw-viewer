@@ -57,6 +57,7 @@ object MetaParser {
         var thumbLen = 0
         var prevOff = 0L
         var prevLen = 0
+        var ultraHdr = false
         var guard = 0
         while (guard++ < 64) {
             val h = r.read(pos, 4)
@@ -81,6 +82,13 @@ object MetaParser {
                         }
                     }
                 }
+            } else if (marker == 0xE1 && !ultraHdr && dataLen > 29) {
+                // XMP: negli Ultra HDR (Pixel e altri) dichiara la gain map, che sta nell'MPF come immagine secondaria
+                val sig = r.read(dataStart, 28)
+                if (sig.size == 28 && String(sig, Charsets.US_ASCII) == "http://ns.adobe.com/xap/1.0/") {
+                    val xmp = String(r.read(dataStart, minOf(dataLen, 65535)), Charsets.UTF_8)
+                    if ("hdrgm" in xmp || "GainMap" in xmp) ultraHdr = true
+                }
             } else if (marker == 0xE2 && prevLen == 0) {
                 val head = r.read(dataStart, 4)
                 if (head.size == 4 && head[0] == 'M'.b && head[1] == 'P'.b && head[2] == 'F'.b && head[3] == 0.toByte()) {
@@ -94,6 +102,8 @@ object MetaParser {
             }
             pos = dataStart + dataLen
         }
+        // in un Ultra HDR l'immagine secondaria è la gain map (grigia): non è un'anteprima
+        if (ultraHdr) { prevOff = 0; prevLen = 0 }
         return FileInfo(meta ?: PhotoMeta.EMPTY, thumbOff, thumbLen, prevOff, prevLen)
     }
 
@@ -234,9 +244,9 @@ object MetaParser {
     // ---------------- MPF ----------------
 
     /**
-     * Ritorna (offset relativo all'header MPF, lunghezza) dell'anteprima secondaria più grande.
-     * Solo le voci marcate come "Large Thumbnail" (tipo 0x010001 / 0x010002), come quelle Fuji:
-     * negli Ultra HDR (Pixel e altri) l'immagine secondaria è la gain map in scala di grigi, non un'anteprima.
+     * Ritorna (offset relativo all'header MPF, lunghezza) dell'immagine secondaria più grande.
+     * Il tipo dichiarato non basta per scartare le gain map (le Fuji non usano "Large Thumbnail"):
+     * gli Ultra HDR si riconoscono dall'XMP in [parseJpegAt].
      */
     private fun parseMpf(d: ByteArray, start: Int): Pair<Long, Int>? {
         val t = Tiff(d, start)
@@ -250,10 +260,9 @@ object MetaParser {
             for (i in 0 until n) {
                 val p = o + i * 16
                 if (!t.valid(p, 16)) break
-                val type = t.u32(p).toInt() and 0xFFFFFF
                 val size = t.u32(p + 4)
                 val off = t.u32(p + 8)
-                if ((type == 0x010001 || type == 0x010002) && off > 0 && size in 1..MAX_PREVIEW) {
+                if (off > 0 && size in 1..MAX_PREVIEW) {
                     if (best == null || size > best.second) best = off to size.toInt()
                 }
             }

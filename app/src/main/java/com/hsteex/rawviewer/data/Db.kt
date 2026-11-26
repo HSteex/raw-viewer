@@ -8,7 +8,7 @@ import android.database.sqlite.SQLiteOpenHelper
 import android.net.Uri
 
 /** Database interno: voti, cache dei metadati e cartelle recenti. */
-class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 4) {
+class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 5) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -34,6 +34,8 @@ class Db(context: Context) : SQLiteOpenHelper(context, "rawviewer.db", null, 4) 
             db.execSQL("ALTER TABLE meta ADD COLUMN fy INTEGER")
             db.execSQL("DELETE FROM meta")
         }
+        // v5: le anteprime MPF Fuji erano scartate per errore (lettura lentissima): si rilegge
+        if (oldVersion < 5) db.execSQL("DELETE FROM meta")
     }
 
     // ---------- ratings ----------

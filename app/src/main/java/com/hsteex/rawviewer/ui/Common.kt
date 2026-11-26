@@ -164,11 +164,18 @@ fun formatSize(bytes: Long): String = when {
 private val dateFmt = SimpleDateFormat("EEE d MMM yyyy, HH:mm:ss", Locale.ITALIAN)
 
 @Composable
-fun InfoContent(shot: Shot, meta: PhotoMeta?) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
-        Text(shot.baseName, style = MaterialTheme.typography.titleLarge)
-        Text(shot.relDir.ifEmpty { "/" }, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-        Spacer(Modifier.height(12.dp))
+/** [compact]: dentro il cassetto del visualizzatore, dove nome e cartella sono già nella barra in alto. */
+fun InfoContent(shot: Shot, meta: PhotoMeta?, compact: Boolean = false) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = if (compact) 0.dp else 20.dp, vertical = if (compact) 0.dp else 8.dp)) {
+        if (!compact) {
+            Text(shot.baseName, style = MaterialTheme.typography.titleLarge)
+            if (shot.relDir.isNotEmpty()) {
+                Text(shot.relDir, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+            }
+            Spacer(Modifier.height(12.dp))
+        } else if (shot.relDir.isNotEmpty()) {
+            InfoRow("Cartella", shot.relDir)
+        }
         val m = meta
         if (m != null) {
             val expo = listOfNotNull(

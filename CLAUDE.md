@@ -48,8 +48,13 @@ legge la SD con un **adattatore USB-C** e scrive in italiano: UI e messaggi in i
 - Le anteprime incorporate Fuji (MPF, miniatura EXIF) sono 4:3 con bande nere: `decodeShot` le ritaglia al formato della
   foto (`cropToAspect` con larghezza/altezza EXIF). Miniature ora `.g3.jpg`.
 - `ZoomableState.zoomTo()` vuole lo zoom FINALE rispetto ai pixel della foto (1f = 100%), non quello rispetto al fit.
-- MPF: come anteprima valgono solo le voci "Large Thumbnail" (0x010001/0x010002). Negli Ultra HDR la secondaria è
-  la gain map (causava il "flash" grigio). DB v3 svuota la cache metadati; miniature ora `.g2.jpg`.
+- MPF: si prende l'immagine secondaria più grande, di QUALSIASI tipo (le Fuji non dichiarano "Large Thumbnail":
+  filtrare per tipo le scartava e l'app ripiegava sul JPEG da 5 MB nel RAF o sul file intero → secondi per foto).
+  Gli Ultra HDR (gain map grigia come secondaria) si riconoscono dall'XMP (`hdrgm`/`GainMap`) e lì niente anteprima MPF.
+  DB v5 svuota la cache metadati.
+- `ImageRepo.preview()` condivide le letture in corso per la stessa foto (`previewInFlight`).
+- Visualizzatore: l'anteprima resta sotto la foto finché telephoto non è in piena qualità + 2 fotogrammi
+  (`isImageDisplayed` arriva un fotogramma prima del disegno: toglierla subito dava un lampo nero).
 - Ordinamento per data: per gli scatti non ancora indicizzati la data del file è corretta con la mediana dello scarto
   ora di scatto/data file (`Library.mtimeOffset`): sulle SD FAT è sfasata del fuso orario.
 - Griglia: le celle mostrano subito la miniatura EXIF (`quickThumb`, solo per scatti già indicizzati), poi quella

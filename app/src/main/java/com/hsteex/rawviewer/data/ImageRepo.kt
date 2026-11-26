@@ -14,6 +14,9 @@ import androidx.exifinterface.media.ExifInterface
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
@@ -412,6 +415,20 @@ class ImageRepo(private val context: Context, private val db: Db) {
 
     /** Anteprima grande (MPF ~1600px o JPEG incorporato) per mostrare subito la foto. */
     suspend fun preview(s: Shot): Bitmap? {
+        previewCache.get(s.key)?.let { return it }
+        // più richieste per la stessa foto (pagina, vicina, prefetch) condividono una sola lettura;
+        // la lettura prosegue anche se chi l'ha chiesta scorre via: costa poco e servirà al ritorno
+        val job = previewInFlight.computeIfAbsent(s.key) { _ ->
+            scope.async(start = CoroutineStart.LAZY) { loadPreview(s) }
+        }
+        job.invokeOnCompletion { previewInFlight.remove(s.key, job) }
+        job.start()
+        return job.await()
+    }
+
+    private val previewInFlight = ConcurrentHashMap<String, Deferred<Bitmap?>>()
+
+    private suspend fun loadPreview(s: Shot): Bitmap? {
         previewCache.get(s.key)?.let { return it }
         val tQueued = SystemClock.uptimeMillis()
         return withContext(ioViewer) {
