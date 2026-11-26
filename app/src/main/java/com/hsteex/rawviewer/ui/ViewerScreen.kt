@@ -50,6 +50,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -672,7 +673,27 @@ private fun ViewerDrawer(
                 .fillMaxWidth()
                 .clip(shape)
                 .hazeEffect(haze, glass)
-                .border(1.5.dp, ring, shape)
+                // bordo solo in alto e sui lati, che svanisce verso il basso (niente cornice chiusa sotto)
+                .drawWithContent {
+                    drawContent()
+                    val sw = 1.5.dp.toPx()
+                    val r = 28.dp.toPx()
+                    val h = size.height
+                    val w = size.width
+                    val path = Path().apply {
+                        moveTo(sw / 2, h)
+                        lineTo(sw / 2, r)
+                        arcTo(Rect(sw / 2, sw / 2, 2 * r, 2 * r), 180f, 90f, false)
+                        lineTo(w - r, sw / 2)
+                        arcTo(Rect(w - 2 * r, sw / 2, w - sw / 2, 2 * r), 270f, 90f, false)
+                        lineTo(w - sw / 2, h)
+                    }
+                    drawPath(
+                        path,
+                        Brush.verticalGradient(listOf(ring, ring.copy(alpha = 0f)), startY = r, endY = minOf(h, r + 140.dp.toPx())),
+                        style = Stroke(width = sw),
+                    )
+                }
                 // tirare su apre, tirare giù chiude (solo sul cassetto: sulla foto lo swipe vota)
                 .draggable(
                     dragState, Orientation.Vertical,
