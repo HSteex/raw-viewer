@@ -97,6 +97,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import com.hsteex.rawviewer.data.ImageStats
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -684,42 +685,44 @@ private fun ViewerDrawer(
                 .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Box(
-                Modifier
-                    .size(width = 64.dp, height = 28.dp)
-                    .clickable(onClickLabel = if (expanded) "Chiudi dettagli" else "Apri dettagli") { onExpandedChange(!expanded) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(Modifier.size(width = 36.dp, height = 4.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.45f)))
-            }
-            // dati di scatto e, a portata di pollice, il selettore JPEG/RAW
-            if (exposureLine.isNotEmpty() || rawChoice != null) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        exposureLine, color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-                    )
-                    if (rawChoice != null) {
-                        Spacer(Modifier.width(8.dp))
-                        Row(Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.10f)).padding(3.dp)) {
-                            for ((label, raw) in listOf(rawChoice to false, "RAW" to true)) {
-                                val sel = showRaw == raw
-                                Text(
-                                    label,
-                                    color = if (sel) MaterialTheme.colorScheme.onPrimary else Color.White,
-                                    fontWeight = FontWeight.SemiBold, fontSize = 12.sp,
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .background(if (sel) Accent else Color.Transparent)
-                                        .clickable { onRaw(raw) }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                )
-                            }
+            // riga della maniglia: maniglia al centro, selettore JPEG/RAW a destra (a portata di pollice)
+            Box(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                Box(
+                    Modifier
+                        .align(Alignment.Center)
+                        .size(width = 64.dp, height = 28.dp)
+                        .clickable(onClickLabel = if (expanded) "Chiudi dettagli" else "Apri dettagli") { onExpandedChange(!expanded) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(Modifier.size(width = 36.dp, height = 4.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.45f)))
+                }
+                if (rawChoice != null) {
+                    Row(Modifier.align(Alignment.CenterEnd).clip(CircleShape).background(Color.White.copy(alpha = 0.10f)).padding(3.dp)) {
+                        for ((label, raw) in listOf(rawChoice to false, "RAW" to true)) {
+                            val sel = showRaw == raw
+                            Text(
+                                label,
+                                color = if (sel) MaterialTheme.colorScheme.onPrimary else Color.White,
+                                fontWeight = FontWeight.SemiBold, fontSize = 12.sp,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(if (sel) Accent else Color.Transparent)
+                                    .clickable { onRaw(raw) }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                            )
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
             }
+            // dati di scatto, centrati sopra le stelle
+            if (exposureLine.isNotEmpty()) {
+                Text(
+                    exposureLine, color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 VerdictButton(Icons.Filled.Close, "Scarta", rating.flag == Flag.REJECT, RejectRed, onReject)
                 StarsRow(rating.stars, onStar = onStar, size = 36.dp)

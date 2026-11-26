@@ -81,7 +81,7 @@ legge la SD con un **adattatore USB-C** e scrive in italiano: UI e messaggi in i
   dock di voto, pillole del confronto. Mai un `hazeEffect` dentro il proprio `hazeSource`.
 - Visualizzatore: in basso un cassetto di vetro (`ViewerDrawer`): da chiuso maniglia, dati di scatto e ✗ · stelle · ✓
   (bordo che si accende col voto); tirato su (o tocco sulla maniglia) analisi (istogramma, bruciature, fuoco,
-  100% sul punto AF) e info scatto. JPEG/RAW resta fuori, accanto ai dati di scatto. Il trascinamento vale solo sul cassetto: sulla foto lo swipe vota.
+  100% sul punto AF) e info scatto. JPEG/RAW resta fuori, a destra della maniglia; dati di scatto centrati sopra le stelle. Il trascinamento vale solo sul cassetto: sulla foto lo swipe vota.
   In alto: indietro, titolo, annulla, confronta, condividi (niente menu ⋮).
   Mockup di riferimento: artifact "RAW Viewer Redesign".
 - Home e Impostazioni: liste raggruppate (`groupShape` in HomeScreen.kt; in Impostazioni piastrelle con fessura da 3 dp).
