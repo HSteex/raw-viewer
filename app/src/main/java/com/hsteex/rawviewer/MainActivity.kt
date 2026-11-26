@@ -38,6 +38,7 @@ private fun AppRoot(vm: MainViewModel) {
         Screen.Home -> HomeScreen(vm)
         Screen.Browser -> BrowserScreen(vm)
         Screen.Settings -> SettingsScreen(vm)
+        Screen.DebugLog -> com.hsteex.rawviewer.ui.DebugLogScreen(vm)
         is Screen.Viewer -> ViewerScreen(vm, s)
         is Screen.Compare -> CompareScreen(vm, s)
     }

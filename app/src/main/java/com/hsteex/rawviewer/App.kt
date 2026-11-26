@@ -19,6 +19,7 @@ class App : Application() {
         db = Db(this)
         images = ImageRepo(this, db)
         prefs = Prefs(this)
+        com.hsteex.rawviewer.data.DebugLog.enabled = prefs.debugLog.value
         ImportWorker.createChannel(this)
     }
 }

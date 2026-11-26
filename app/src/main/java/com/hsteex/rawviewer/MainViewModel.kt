@@ -44,6 +44,7 @@ sealed interface Screen {
     data object Home : Screen
     data object Browser : Screen
     data object Settings : Screen
+    data object DebugLog : Screen
     data class Viewer(val keys: List<String>, val start: Int) : Screen
     /** [keys]: le foto da cui scegliere nella striscia in basso (l'elenco da cui si arriva). */
     data class Compare(val a: String, val b: String, val keys: List<String>) : Screen
@@ -136,7 +137,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         // col visualizzatore aperto la banda della SD è tutta per la foto a schermo
         viewModelScope.launch {
-            screen.collect { repo.setInteractive(it is Screen.Viewer || it is Screen.Compare) }
+            screen.collect {
+                com.hsteex.rawviewer.data.DebugLog.d("app", "schermata: ${it.javaClass.simpleName}")
+                repo.setInteractive(it is Screen.Viewer || it is Screen.Compare)
+            }
         }
     }
 
@@ -228,6 +232,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 metas.value = known
                 shots.value = grouped
                 scan.value = ScanState.Done(grouped.size, System.currentTimeMillis() - t0)
+                com.hsteex.rawviewer.data.DebugLog.d(
+                    "scan", "${files.size} file → ${grouped.size} scatti in ${System.currentTimeMillis() - t0} ms; " +
+                        "metadati già in cache: ${known.size}",
+                )
                 startIndexing(grouped)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -269,6 +277,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 flushMetas(buffer)
             }
             indexing.value = null
+            com.hsteex.rawviewer.data.DebugLog.d("scan", "metadati letti: $total scatti; ora miniature su disco")
             // miniature su disco: si parte sempre da dove sei nella griglia, poi verso il basso e l'alto
             val order = filtered.value
             val pos = HashMap<String, Int>(order.size * 2).apply { order.forEachIndexed { i, s -> put(s.key, i) } }
@@ -309,6 +318,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             }.forEach { it.join() }
+            com.hsteex.rawviewer.data.DebugLog.d("scan", "miniature su disco completate")
         }
     }
 

@@ -84,6 +84,7 @@ class ImageRepo(private val context: Context, private val db: Db) {
     /** true mentre è aperto il visualizzatore (o il confronto): background in pausa. */
     fun setInteractive(on: Boolean) {
         if (!on) lastFg = SystemClock.uptimeMillis()
+        if (interactive.value != on) DebugLog.d(LT, if (on) "background in pausa (visualizzatore)" else "background libero")
         interactive.value = on
     }
 
@@ -98,10 +99,15 @@ class ImageRepo(private val context: Context, private val db: Db) {
     }
 
     private suspend fun awaitBackgroundTurn() {
+        val t0 = SystemClock.uptimeMillis()
         while (true) {
             combine(interactive, fgCount) { i, n -> !i && n == 0 }.first { it }
             val wait = lastFg + BG_COOLDOWN_MS - SystemClock.uptimeMillis()
-            if (wait <= 0 && !interactive.value && fgCount.value == 0) return
+            if (wait <= 0 && !interactive.value && fgCount.value == 0) {
+                val waited = SystemClock.uptimeMillis() - t0
+                if (waited > 1000) DebugLog.d(LT, "background ripreso dopo $waited ms di attesa")
+                return
+            }
             delay(wait.coerceAtLeast(50))
         }
     }
@@ -141,7 +147,10 @@ class ImageRepo(private val context: Context, private val db: Db) {
         val pending = ArrayList<Pair<MediaFile, FileInfo>>()
         val primary = s.jpeg?.takeIf { it.kind == Kind.JPEG } ?: s.raw ?: s.jpeg
         if (primary != null && infoCache[primary.docId] == null) {
+            val t0 = SystemClock.uptimeMillis()
             parseFile(primary)?.let { infoCache[primary.docId] = it; pending += primary to it }
+            val ms = SystemClock.uptimeMillis() - t0
+            if (ms > 80) DebugLog.d(LT, "metadati ${primary.name} lenti: $ms ms")
         }
         if (pending.isNotEmpty()) runCatching { db.putInfos(pending) }
         return metaOf(s)
@@ -149,7 +158,7 @@ class ImageRepo(private val context: Context, private val db: Db) {
 
     private fun info(f: MediaFile): FileInfo? {
         infoCache[f.docId]?.let { return it }
-        val parsed = parseFile(f) ?: return null
+        val parsed = DebugLog.time(LT, "metadati ${f.name} letti al volo") { parseFile(f) } ?: return null
         infoCache[f.docId] = parsed
         runCatching { db.putInfos(listOf(f to parsed)) }
         return parsed
@@ -237,9 +246,10 @@ class ImageRepo(private val context: Context, private val db: Db) {
     private fun decodeShot(s: Shot, targetLong: Int, allowWhole: Boolean = true): Bitmap? {
         for (src in sources(s, allowWhole)) {
             val bmp = try {
-                if (src.whole) decodeWhole(src.uri, targetLong) else decodeRange(src, targetLong)
+                if (src.whole) DebugLog.time(LT, "${s.baseName} file intero → ${targetLong}px") { decodeWhole(src.uri, targetLong) }
+                else decodeRange(src, targetLong, s.baseName)
             } catch (e: Exception) {
-                Log.w(TAG, "decode ${s.baseName}", e)
+                DebugLog.w(LT, "decodifica ${s.baseName} fallita", e)
                 null
             }
             // le anteprime incorporate (Fuji: MPF 4:3, miniatura 160×120) hanno bande nere se la foto è 3:2 o 16:9
@@ -251,8 +261,10 @@ class ImageRepo(private val context: Context, private val db: Db) {
         return null
     }
 
-    private fun decodeRange(src: Src, targetLong: Int): Bitmap? {
+    private fun decodeRange(src: Src, targetLong: Int, name: String): Bitmap? {
+        val t0 = SystemClock.uptimeMillis()
         val bytes = withReader(src.uri) { it.read(src.off, src.len) } ?: return null
+        val tRead = SystemClock.uptimeMillis() - t0
         if (bytes.size < 4 || bytes[0] != 0xFF.toByte() || bytes[1] != 0xD8.toByte()) return null
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
@@ -261,7 +273,12 @@ class ImageRepo(private val context: Context, private val db: Db) {
             inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, targetLong)
         }
         val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) ?: return null
-        return scaleDown(bmp, targetLong)
+        val out = scaleDown(bmp, targetLong)
+        DebugLog.d(
+            LT, "$name → ${targetLong}px: letti ${bytes.size / 1024} KB in $tRead ms, decodifica " +
+                "${SystemClock.uptimeMillis() - t0 - tRead} ms (${bounds.outWidth}×${bounds.outHeight}, campione ${opts.inSampleSize})",
+        )
+        return out
     }
 
     private fun decodeWhole(uri: Uri, targetLong: Int): Bitmap? {
@@ -375,6 +392,7 @@ class ImageRepo(private val context: Context, private val db: Db) {
                 return it
             }
         }
+        DebugLog.d(LT, "miniatura ${s.baseName} dalla SD (${if (keepInMemory) "a schermo" else "background"})")
         // keepInMemory = miniatura visibile a schermo: ha la precedenza sul background
         val bmp = (if (keepInMemory) foreground { decodeShot(s, GRID_PX) } else decodeShot(s, GRID_PX)) ?: return null
         try {
@@ -395,11 +413,14 @@ class ImageRepo(private val context: Context, private val db: Db) {
     /** Anteprima grande (MPF ~1600px o JPEG incorporato) per mostrare subito la foto. */
     suspend fun preview(s: Shot): Bitmap? {
         previewCache.get(s.key)?.let { return it }
+        val tQueued = SystemClock.uptimeMillis()
         return withContext(ioViewer) {
+            val queued = SystemClock.uptimeMillis() - tQueued
+            if (queued > 50) DebugLog.d(LT, "anteprima ${s.baseName}: $queued ms in coda")
             foreground {
                 previewCache.get(s.key) ?: decodeShot(s, PREVIEW_PX, allowWhole = false)
                     ?.also { previewCache.put(s.key, it) }
-                    ?: loadGrid(s, true)
+                    ?: loadGrid(s, true).also { DebugLog.w(LT, "anteprima ${s.baseName}: nessuna incorporata, uso la miniatura") }
             }
         }
     }
@@ -411,19 +432,20 @@ class ImageRepo(private val context: Context, private val db: Db) {
 
     /** Sorgente a tile per lo zoom a piena risoluzione. */
     suspend fun viewerSource(s: Shot): SubSamplingImageSource? = withContext(ioViewer) {
+        // l'anteprima la disegna il visualizzatore sotto la foto; telephoto non ne riceve una sua,
+        // che a volte compariva per un fotogramma fuori posto (in basso a sinistra)
         val prev = preview(s)
-        val prevImg = prev?.asImageBitmap()
         val j = s.jpeg
         when {
             j != null && j.kind == Kind.JPEG -> {
                 val local = foreground { localCopy(j) }
-                if (local != null) SubSamplingImageSource.file(local.toOkioPath(), prevImg)
-                else SubSamplingImageSource.contentUri(j.uri, prevImg)
+                if (local != null) SubSamplingImageSource.file(local.toOkioPath())
+                else SubSamplingImageSource.contentUri(j.uri)
             }
-            j != null -> SubSamplingImageSource.contentUri(j.uri, prevImg)
+            j != null -> SubSamplingImageSource.contentUri(j.uri)
             s.raw != null -> {
                 val file = foreground { embeddedJpegFile(s.raw) } ?: prev?.let { bitmapFile(s, it) }
-                file?.let { SubSamplingImageSource.file(it.toOkioPath(), prevImg) }
+                file?.let { SubSamplingImageSource.file(it.toOkioPath()) }
             }
             else -> null
         }
@@ -438,7 +460,7 @@ class ImageRepo(private val context: Context, private val db: Db) {
         val raw = s.raw ?: return@withContext null
         val f = File(diskDir, hash(raw.cacheId) + ".dev.jpg")
         if (!f.exists()) {
-            val bmp = RawDecoder.decode(context, raw.uri) ?: return@withContext null
+            val bmp = DebugLog.time(LT, "sviluppo RAW ${raw.name}") { RawDecoder.decode(context, raw.uri) } ?: return@withContext null
             val tmp = File(diskDir, f.name + ".tmp")
             FileOutputStream(tmp).use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }
             bmp.recycle()
@@ -472,9 +494,11 @@ class ImageRepo(private val context: Context, private val db: Db) {
         val out = File(fullDir, hash(f.cacheId) + ".jpg")
         if (out.exists() && out.length() == f.size) {
             out.setLastModified(System.currentTimeMillis())
+            DebugLog.d(LT, "file intero ${f.name}: già in cache")
             return out
         }
         val tmp = File(fullDir, out.name + ".tmp")
+        val t0 = SystemClock.uptimeMillis()
         try {
             val input = resolver.openInputStream(f.uri) ?: return null
             input.use { inp ->
@@ -489,11 +513,14 @@ class ImageRepo(private val context: Context, private val db: Db) {
                 }
             }
             if (!tmp.renameTo(out)) return null
+            val ms = (SystemClock.uptimeMillis() - t0).coerceAtLeast(1)
+            DebugLog.d(LT, "file intero ${f.name}: ${f.size / 1048576} MB copiati in $ms ms (%.1f MB/s)".format(f.size / 1048576.0 / (ms / 1000.0)))
         } catch (e: kotlinx.coroutines.CancellationException) {
+            DebugLog.d(LT, "file intero ${f.name}: copia annullata dopo ${SystemClock.uptimeMillis() - t0} ms")
             tmp.delete()
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "copy ${f.name}", e)
+            DebugLog.w(LT, "copia ${f.name} fallita", e)
             tmp.delete()
             return null
         }
@@ -554,6 +581,7 @@ class ImageRepo(private val context: Context, private val db: Db) {
 
     companion object {
         private const val TAG = "ImageRepo"
+        private const val LT = "img"
         const val GRID_PX = 640
         const val PREVIEW_PX = 2048
         private const val MAX_DISK = 800L shl 20

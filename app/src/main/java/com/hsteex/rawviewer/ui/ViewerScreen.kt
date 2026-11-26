@@ -146,6 +146,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.hsteex.rawviewer.data.DebugLog
+import kotlinx.coroutines.CancellationException
 
 @Composable
 fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
@@ -320,6 +322,17 @@ fun ViewerScreen(vm: MainViewModel, screen: Screen.Viewer) {
 }
 
 private const val NEIGHBOR_WAIT_MS = 1500L
+private const val LV = "viewer"
+
+/** Come runCatching, ma lascia passare l'annullamento (scorrere via non è un errore) e registra gli errori veri. */
+private inline fun <T> attempt(what: String, block: () -> T): T? = try {
+    block()
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    DebugLog.w(LV, "$what fallita", e)
+    null
+}
 /** Se si resta sulla foto almeno questo tempo, parte la piena risoluzione (scorrendo veloce si leggono solo anteprime). */
 private const val FULL_RES_DELAY_MS = 300L
 
@@ -401,20 +414,29 @@ fun ViewerPage(
 
     // pagina vicina: solo l'anteprima (~1600px), e solo dopo che quella a schermo è pronta
     LaunchedEffect(shot.key, active, warm) {
-        if (!active && warm && preview == null) preview = runCatching { repo.preview(shot) }.getOrNull()
+        if (!active && warm && preview == null) preview = attempt("anteprima vicina ${shot.baseName}") { repo.preview(shot) }
     }
     // pagina a schermo: anteprima subito, poi piena risoluzione. Se si scorre via prima
     // che finisca, l'effetto viene annullato e la banda passa alla nuova pagina.
     LaunchedEffect(shot.key, raw, active) {
         if (!active || source != null || failed) return@LaunchedEffect
         t0 = SystemClock.uptimeMillis()
-        if (preview == null) preview = runCatching { repo.preview(shot) }.getOrNull()
-        tPreview = SystemClock.uptimeMillis() - t0
-        onPreview()
-        if (preview != null) delay(FULL_RES_DELAY_MS)
-        val s = runCatching { if (raw) repo.rawSource(shot) else repo.viewerSource(shot) }.getOrNull()
-        tSource = SystemClock.uptimeMillis() - t0
-        if (s == null) failed = true else source = s
+        DebugLog.d(LV, "▶ ${shot.baseName}${if (raw) " (RAW)" else ""}: a schermo, anteprima ${if (preview != null) "già in memoria" else "da leggere"}")
+        try {
+            if (preview == null) preview = attempt("anteprima ${shot.baseName}") { repo.preview(shot) }
+            tPreview = SystemClock.uptimeMillis() - t0
+            DebugLog.d(LV, "${shot.baseName}: anteprima ${if (preview != null) "a schermo" else "MANCANTE"} dopo $tPreview ms")
+            onPreview()
+            if (preview != null) delay(FULL_RES_DELAY_MS)
+            val s = attempt("piena risoluzione ${shot.baseName}") { if (raw) repo.rawSource(shot) else repo.viewerSource(shot) }
+            tSource = SystemClock.uptimeMillis() - t0
+            DebugLog.d(LV, "${shot.baseName}: file pronto dopo $tSource ms" + if (s == null) " → IMPOSSIBILE APRIRE" else "")
+            // solo un errore vero segna la pagina: se si scorre via l'effetto è annullato e si riprova al ritorno
+            if (s == null) failed = true else source = s
+        } catch (e: CancellationException) {
+            DebugLog.d(LV, "${shot.baseName}: caricamento interrotto dopo ${SystemClock.uptimeMillis() - t0} ms (pagina lasciata)")
+            throw e
+        }
     }
     val threshold = with(LocalDensity.current) { 90.dp.toPx() }
 
@@ -470,10 +492,13 @@ fun ViewerPage(
                     Image(img, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                 }
             }
-            if (showTimings) {
-                LaunchedEffect(state) {
-                    snapshotFlow { state.isImageDisplayedInFullQuality }.first { it }
-                    if (t0 > 0) tFull = SystemClock.uptimeMillis() - t0
+            LaunchedEffect(state) {
+                snapshotFlow { state.isImageDisplayed }.first { it }
+                if (t0 > 0) DebugLog.d(LV, "${shot.baseName}: piena risoluzione disegnata dopo ${SystemClock.uptimeMillis() - t0} ms")
+                snapshotFlow { state.isImageDisplayedInFullQuality }.first { it }
+                if (t0 > 0) {
+                    tFull = SystemClock.uptimeMillis() - t0
+                    DebugLog.d(LV, "${shot.baseName}: piena qualità dopo $tFull ms")
                 }
             }
             var drag by remember { mutableFloatStateOf(0f) }
@@ -500,6 +525,8 @@ fun ViewerPage(
                 contentDescription = shot.baseName,
                 modifier = Modifier
                     .fillMaxSize()
+                    // invisibile finché non ha disegnato la foto: sotto c'è già l'anteprima
+                    .graphicsLayer { alpha = if (state.isImageDisplayed) 1f else 0f }
                     .then(swipeMod)
                     .zoomable(zoom, onClick = { onTap() }),
             )

@@ -57,6 +57,8 @@ import kotlinx.coroutines.withContext
 import android.os.Build
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import com.hsteex.rawviewer.Screen
 
 @Composable
 fun SettingsScreen(vm: MainViewModel) {
@@ -68,6 +70,7 @@ fun SettingsScreen(vm: MainViewModel) {
     val format by p.importFormat.collectAsStateWithLifecycle()
     val timings by p.showTimings.collectAsStateWithLifecycle()
     val dynamic by p.dynamicColor.collectAsStateWithLifecycle()
+    val debugLog by p.debugLog.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var cacheSize by remember { mutableLongStateOf(-1L) }
@@ -124,6 +127,25 @@ fun SettingsScreen(vm: MainViewModel) {
                     "Nel visualizzatore: quanto ci mettono anteprima e piena risoluzione",
                     timings, p::setShowTimings,
                 )
+                Divider()
+                SwitchRow(
+                    "Registro di debug",
+                    "Annota tempi ed errori di lettura, anteprime e caricamenti per capire dove rallenta",
+                    debugLog, p::setDebugLog,
+                )
+                if (debugLog) {
+                    Divider()
+                    Row(
+                        Modifier.fillMaxWidth().background(Surface1).clickable { vm.navigate(Screen.DebugLog) }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Apri il registro", fontWeight = FontWeight.Medium)
+                            Text("Leggi, copia o condividi il testo", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
+                    }
+                }
             }
 
             Section("Griglia") {
