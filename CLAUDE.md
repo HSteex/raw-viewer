@@ -30,6 +30,11 @@ legge la SD con un **adattatore USB-C** e scrive in italiano: UI e messaggi in i
   l'anteprima dopo quella della corrente. La piena risoluzione JPEG viene prima copiata in `cacheDir/full`
   (max 40 file / 700 MB) e telephoto la legge da file: niente letture SD durante lo zoom.
 - Diagnostica: impostazione "Mostra tempi di caricamento" (overlay nel visualizzatore).
+- Registro di debug (`data/DebugLog.kt`): attivabile in Impostazioni → Diagnostica; ultime 4000 righe in memoria,
+  schermata `DebugLogScreen` (copia / condividi come file via FileProvider `${applicationId}.files`). Tag: `img`
+  (letture SD vs decodifica, copia file intero con MB/s), `viewer` (tempi per foto, annullamenti), `scan`, `app`.
+  Quando l'utente manda un registro, partire da lì per i problemi di prestazioni.
+- Nel visualizzatore gli errori passano da `attempt {}`: l'annullamento (pagina lasciata) NON è un errore.
 - Visualizzatore: istogramma (RGB + luminanza) e maschera bruciature (rosso ≥253, blu ≤2) da `data/ImageStats.kt`,
   calcolati sull'anteprima in memoria (sempre il JPEG). Le maschere si disegnano nel `transformedContentBounds`, quindi
   seguono lo zoom. Menu "Analisi": istogramma, bruciature, messa a fuoco (peaking = laplaciano sull'anteprima + riquadro
